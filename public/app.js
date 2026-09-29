@@ -9,7 +9,7 @@
     if (text != null) e.textContent = text;
     return e;
   };
-  const fmt = (n) => Number(n).toLocaleString('en-US');
+  const fmt = (n) => Math.floor(Number(n)).toLocaleString('en-US');
 
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -17,13 +17,14 @@
   };
 
   let token = store.get('pokerToken');
-  let me = null; // { username, chips, inPlay, canRefill }
+  let me = null; // public user from the server
+  let config = { avatarEmojis: [], avatarColors: [], emotes: [] };
   let socket = null;
   let currentRoom = null;
   let state = null;
+  let prev = null; // previous table state, to detect what changed
   let serverOffset = 0;
-  let wasMyTurn = false;
-  let authMode = 'login';
+  let celebratedHand = -1;
 
   // ---------- helpers ----------
   function show(screen) {
@@ -61,11 +62,42 @@
     });
   }
 
+  function fillAvatar(div, av) {
+    div.innerHTML = '';
+    div.style.background = av.color || '#555';
+    if (av.img) {
+      const img = new Image();
+      img.alt = '';
+      img.src = av.img;
+      div.append(img);
+    } else div.textContent = av.emoji || '👤';
+  }
+  function avatarEl(av) {
+    const d = el('div', 'avatar');
+    fillAvatar(d, av);
+    return d;
+  }
+
+  function centerOf(node) {
+    return node ? node.getBoundingClientRect() : null;
+  }
+
   function setWallet(user) {
     me = user;
     for (const e of $$('.wallet-amount')) e.textContent = fmt(user.chips);
     $('#lobby-user').textContent = user.username;
-    $('#refill-btn').classList.toggle('hidden', !user.canRefill);
+    const la = $('#lobby-avatar');
+    la.innerHTML = '';
+    la.append(avatarEl(user.avatar));
+    $('#recovery-banner').classList.toggle('hidden', !!user.hasRecovery);
+    renderRewards();
+    renderMiners();
+  }
+
+  function setToken(t) {
+    token = t;
+    store.set('pokerToken', t);
+    if (socket) socket.auth = { token: t };
   }
 
   function roomFromUrl() {
@@ -80,24 +112,8 @@
     history.replaceState(null, '', url);
   }
 
-  // ---------- audio ----------
-  let audioCtx;
-  function beep() {
-    try {
-      audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.frequency.value = 880;
-      g.gain.setValueAtTime(0.15, audioCtx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
-      o.connect(g).connect(audioCtx.destination);
-      o.start();
-      o.stop(audioCtx.currentTime + 0.25);
-    } catch {}
-    if (navigator.vibrate) navigator.vibrate(120);
-  }
-
   // ---------- auth ----------
+  let authMode = 'login';
   for (const tab of $$('.auth-panel .tab')) {
     tab.addEventListener('click', () => {
       authMode = tab.dataset.tab;
@@ -116,62 +132,110 @@
         username: $('#auth-username').value.trim(),
         password: $('#auth-password').value,
       });
-      token = data.token;
-      store.set('pokerToken', token);
+      setToken(data.token);
       $('#auth-password').value = '';
       onLoggedIn(data.user);
+      if (data.recoveryCode) showRecoveryCode(data.recoveryCode);
     } catch (err) {
       $('#auth-error').textContent = err.message;
     }
   });
 
+  $('#forgot-link').addEventListener('click', () => {
+    $('#auth-main').classList.add('hidden');
+    $('#reset-main').classList.remove('hidden');
+    $('#reset-username').value = $('#auth-username').value;
+  });
+  $('#back-to-login').addEventListener('click', () => {
+    $('#reset-main').classList.add('hidden');
+    $('#auth-main').classList.remove('hidden');
+  });
+
+  $('#reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('#reset-error').textContent = '';
+    try {
+      const data = await api('/api/reset-password', {
+        username: $('#reset-username').value.trim(),
+        recoveryCode: $('#reset-code').value.trim(),
+        newPassword: $('#reset-password').value,
+      });
+      setToken(data.token);
+      $('#reset-password').value = '';
+      $('#reset-code').value = '';
+      $('#reset-main').classList.add('hidden');
+      $('#auth-main').classList.remove('hidden');
+      onLoggedIn(data.user);
+      toast('Password changed!');
+      showRecoveryCode(data.recoveryCode, 'Your old recovery code is used up. Here is your new one:');
+    } catch (err) {
+      $('#reset-error').textContent = err.message;
+    }
+  });
+
+  function showRecoveryCode(code, note) {
+    $('#recovery-code').textContent = code;
+    const d = $('#code-dialog');
+    d.querySelector('p').innerHTML = note
+      ? `${note} Save it somewhere safe — it won't be shown again.`
+      : "Save this somewhere safe (screenshot, notes app). It's the <b>only</b> way to reset your password if you forget it, and it won't be shown again.";
+    d.showModal();
+  }
+  $('#copy-code-btn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('#recovery-code').textContent);
+      toast('Copied!');
+    } catch {}
+  });
+  $('#code-ok-btn').addEventListener('click', () => $('#code-dialog').close());
+
   $('#logout-btn').addEventListener('click', async () => {
     try { await api('/api/logout', {}); } catch {}
-    token = null;
-    store.set('pokerToken', null);
+    logoutLocal();
+  });
+
+  function logoutLocal() {
+    setToken(null);
     if (socket) socket.disconnect();
     socket = null;
     show('auth');
-  });
+  }
 
   function onLoggedIn(user) {
     setWallet(user);
     connectSocket();
     const code = roomFromUrl();
-    if (code) {
-      joinRoom(code);
-    } else {
-      showLobby();
-    }
+    if (code) joinRoom(code);
+    else showLobby();
   }
 
   // ---------- lobby ----------
   async function showLobby() {
     currentRoom = null;
-    state = null;
+    state = prev = null;
     setUrlRoom(null);
     show('lobby');
     try {
-      const [{ user }, { leaders }] = await Promise.all([api('/api/me'), api('/api/leaderboard')]);
+      const { user } = await api('/api/me');
       setWallet(user);
+      loadLeaderboard();
+      loadMiners();
+    } catch (err) {
+      if (err.status === 401) logoutLocal();
+    }
+  }
+
+  async function loadLeaderboard() {
+    try {
+      const { leaders } = await api('/api/leaderboard');
       const list = $('#leaderboard');
       list.innerHTML = '';
       for (const l of leaders) {
         const li = el('li');
-        li.append(el('span', null, l.username), el('b', null, fmt(l.chips)));
+        li.append(avatarEl(l.avatar), el('span', null, l.username), el('b', null, fmt(l.chips)));
         list.append(li);
       }
-    } catch (err) {
-      if (err.status === 401) return logoutLocal();
-    }
-  }
-
-  function logoutLocal() {
-    token = null;
-    store.set('pokerToken', null);
-    if (socket) socket.disconnect();
-    socket = null;
-    show('auth');
+    } catch {}
   }
 
   $('#join-form').addEventListener('submit', (e) => {
@@ -192,17 +256,266 @@
     toast(`Room ${res.code} created — share the code with your friends!`);
   });
 
-  $('#refill-btn').addEventListener('click', async () => {
-    $('#refill-error').textContent = '';
+  // ---------- rewards ----------
+  function renderRewards() {
+    if (!me) return;
+    const d = me.daily;
+    $('#daily-box').classList.toggle('claimable', d.canClaim);
+    const btn = $('#daily-btn');
+    btn.disabled = !d.canClaim;
+    btn.textContent = d.canClaim ? `Claim ${d.amount}` : 'Claimed ✓';
+    if (d.canClaim) $('#daily-text').textContent = `+${d.amount} chips — ready to claim!`;
+    else {
+      const ms = Math.max(0, d.nextAt - Date.now());
+      const h = Math.floor(ms / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      $('#daily-text').textContent = `Next reward in ${h}h ${m}m`;
+    }
+    $('#refill-box').classList.toggle('hidden', !me.canRefill);
+  }
+
+  function coinBurstAt(node, count = 30) {
+    const r = centerOf(node);
+    if (!r) return;
+    FX.burst(r.left + r.width / 2, r.top + r.height / 2, {
+      count, colors: ['#f2c14e', '#ffd978', '#fff3c4'], shape: 'coin', size: [5, 8], speed: [150, 380], life: [0.7, 1.1],
+    });
+    FX.sound('coins');
+  }
+
+  $('#daily-btn').addEventListener('click', async () => {
+    $('#reward-error').textContent = '';
     try {
-      const { user } = await api('/api/refill', {});
+      const { user, amount } = await api('/api/daily', {});
+      coinBurstAt($('#daily-btn'));
       setWallet(user);
-      toast('500 chips added!');
+      toast(`+${amount} chips!`);
+      loadLeaderboard();
     } catch (err) {
-      $('#refill-error').textContent = err.message;
+      $('#reward-error').textContent = err.message;
     }
   });
 
+  $('#refill-btn').addEventListener('click', async () => {
+    $('#reward-error').textContent = '';
+    try {
+      const { user } = await api('/api/refill', {});
+      coinBurstAt($('#refill-btn'));
+      setWallet(user);
+      toast('+500 chips!');
+      loadLeaderboard();
+    } catch (err) {
+      $('#reward-error').textContent = err.message;
+    }
+  });
+
+  // ---------- miners ----------
+  let mine = null; // { ratePerHour, pending, cap, at, miners, offset }
+
+  async function loadMiners() {
+    try {
+      const data = await api('/api/miners');
+      setMine(data);
+    } catch {}
+  }
+
+  function setMine(data) {
+    mine = { ...data, offset: data.serverTime - Date.now() };
+    renderMiners();
+  }
+
+  function minePending() {
+    if (!mine) return 0;
+    const now = Date.now() + mine.offset;
+    return Math.min(mine.cap, mine.pending + (mine.ratePerHour * Math.max(0, now - mine.at)) / 3600000);
+  }
+
+  function renderMiners() {
+    if (!mine || !me) return;
+    const list = $('#miner-list');
+    list.innerHTML = '';
+    for (const m of mine.miners) {
+      const card = el('div', 'miner' + (m.owned ? ' owned' : ''));
+      if (m.owned) card.append(el('span', 'owned-badge', '×' + m.owned));
+      const days = m.price / m.rate / 24;
+      card.append(
+        el('div', 'icon', m.icon),
+        el('b', null, m.name),
+        el('div', 'rate', `+${fmt(m.rate)} / hour`),
+        el('div', 'payback muted', `pays back in ~${days.toFixed(1)} days`),
+      );
+      const buy = el('button', 'btn' + (me.chips >= m.price ? ' primary' : ''), `Buy · ${fmt(m.price)}`);
+      buy.disabled = me.chips < m.price;
+      buy.addEventListener('click', async () => {
+        $('#miner-error').textContent = '';
+        try {
+          const data = await api('/api/miners/buy', { id: m.id });
+          coinBurstAt(card, 16);
+          setMine(data);
+          setWallet(data.user);
+          toast(`${m.name} is now mining for you!`);
+      loadLeaderboard();
+        } catch (err) {
+          $('#miner-error').textContent = err.message;
+        }
+      });
+      card.append(buy);
+      list.append(card);
+    }
+    tickVault();
+  }
+
+  function tickVault() {
+    if (!mine) return;
+    const p = minePending();
+    $('#vault-amount').textContent = fmt(p);
+    $('#vault-cap').textContent = mine.cap ? `/ ${fmt(mine.cap)} max` : '';
+    $('#mine-rate').textContent = mine.ratePerHour
+      ? `⛏️ ${fmt(mine.ratePerHour)} chips / hour`
+      : 'Buy a miner to start mining';
+    const fill = $('#vault-bar');
+    const pct = mine.cap ? (p / mine.cap) * 100 : 0;
+    fill.style.width = pct + '%';
+    fill.classList.toggle('full', pct >= 99.9);
+    $('#collect-btn').disabled = p < 1;
+    $('#collect-btn').textContent = pct >= 99.9 ? 'Collect (vault full!)' : 'Collect';
+  }
+  setInterval(() => {
+    if (!$('#lobby-screen').classList.contains('hidden')) {
+      tickVault();
+      renderRewards();
+    }
+  }, 1000);
+
+  $('#collect-btn').addEventListener('click', async () => {
+    $('#miner-error').textContent = '';
+    try {
+      const data = await api('/api/miners/collect', {});
+      coinBurstAt($('#collect-btn'), 40);
+      setMine(data);
+      setWallet(data.user);
+      toast(`Collected ${fmt(data.amount)} chips!`);
+      loadLeaderboard();
+    } catch (err) {
+      $('#miner-error').textContent = err.message;
+    }
+  });
+
+  // ---------- profile ----------
+  let sel = null; // { emoji, color, image }
+
+  function openProfile(focusRecovery) {
+    const av = me.avatar;
+    sel = { emoji: av.emoji || config.avatarEmojis[0], color: av.color, image: null, keepImage: !!av.img };
+    $('#profile-name').textContent = me.username;
+    ['avatar-error', 'pw-error', 'recovery-error'].forEach((id) => ($('#' + id).textContent = ''));
+    renderProfile();
+    $('#profile-dialog').showModal();
+    if (focusRecovery) $('#recovery-pw').focus();
+  }
+
+  function renderProfile() {
+    const preview = $('#profile-avatar-preview');
+    preview.innerHTML = '';
+    const av = sel.image ? { img: sel.image, color: sel.color }
+      : sel.keepImage ? me.avatar
+      : { emoji: sel.emoji, color: sel.color };
+    preview.append(avatarEl(av));
+    const grid = $('#avatar-grid');
+    grid.innerHTML = '';
+    for (const e of config.avatarEmojis) {
+      const b = el('button', !sel.image && !sel.keepImage && e === sel.emoji ? 'sel' : '', e);
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        Object.assign(sel, { emoji: e, image: null, keepImage: false });
+        renderProfile();
+      });
+      grid.append(b);
+    }
+    const colors = $('#color-grid');
+    colors.innerHTML = '';
+    for (const c of config.avatarColors) {
+      const b = el('button', c === sel.color ? 'sel' : '');
+      b.type = 'button';
+      b.style.background = c;
+      b.addEventListener('click', () => {
+        sel.color = c;
+        if (sel.keepImage) sel.keepImage = false;
+        renderProfile();
+      });
+      colors.append(b);
+    }
+  }
+
+  $('#profile-btn').addEventListener('click', () => openProfile(false));
+  $('#recovery-banner-btn').addEventListener('click', () => openProfile(true));
+  $('#profile-close').addEventListener('click', () => $('#profile-dialog').close());
+
+  // Photo upload: crop to a square and shrink to 128px before sending.
+  $('#avatar-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      const size = 128;
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const s = Math.min(img.width, img.height);
+      c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+      sel.image = c.toDataURL('image/jpeg', 0.85);
+      sel.keepImage = false;
+      URL.revokeObjectURL(img.src);
+      renderProfile();
+    };
+    img.onerror = () => ($('#avatar-error').textContent = "Couldn't read that image");
+    img.src = URL.createObjectURL(file);
+  });
+
+  $('#avatar-save').addEventListener('click', async () => {
+    $('#avatar-error').textContent = '';
+    if (sel.keepImage) return $('#profile-dialog').close();
+    try {
+      const body = sel.image ? { image: sel.image } : { emoji: sel.emoji, color: sel.color };
+      const { user } = await api('/api/avatar', body);
+      setWallet(user);
+      toast('Avatar saved!');
+      $('#profile-dialog').close();
+      if (!$('#lobby-screen').classList.contains('hidden')) showLobby();
+    } catch (err) {
+      $('#avatar-error').textContent = err.message;
+    }
+  });
+
+  $('#password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('#pw-error').textContent = '';
+    try {
+      const data = await api('/api/change-password', { oldPassword: $('#pw-old').value, newPassword: $('#pw-new').value });
+      setToken(data.token);
+      $('#pw-old').value = $('#pw-new').value = '';
+      toast('Password changed. Other devices were logged out.');
+    } catch (err) {
+      $('#pw-error').textContent = err.message;
+    }
+  });
+
+  $('#recovery-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('#recovery-error').textContent = '';
+    try {
+      const { recoveryCode } = await api('/api/recovery-code', { password: $('#recovery-pw').value });
+      $('#recovery-pw').value = '';
+      me.hasRecovery = true;
+      $('#recovery-banner').classList.add('hidden');
+      $('#profile-dialog').close();
+      showRecoveryCode(recoveryCode);
+    } catch (err) {
+      $('#recovery-error').textContent = err.message;
+    }
+  });
+
+  // ---------- rooms ----------
   async function joinRoom(code) {
     $('#join-error').textContent = '';
     const res = await emit('join-room', { code });
@@ -217,11 +530,14 @@
   }
 
   function enteredRoom(code) {
+    if (currentRoom !== code) {
+      state = prev = null;
+      $('#chat-list').innerHTML = '';
+      $('#log-list').innerHTML = '';
+    }
     currentRoom = code;
     setUrlRoom(code);
     $('#room-code').textContent = code;
-    $('#chat-list').innerHTML = '';
-    $('#log-list').innerHTML = '';
     show('table');
   }
 
@@ -230,8 +546,7 @@
     if (socket) socket.disconnect();
     socket = io({ auth: { token } });
     socket.on('connect', () => {
-      // rejoin after a dropped connection
-      if (currentRoom) joinRoom(currentRoom);
+      if (currentRoom) joinRoom(currentRoom); // rejoin after a dropped connection
     });
     socket.on('connect_error', (err) => {
       if (err.message === 'unauthorized') logoutLocal();
@@ -242,6 +557,7 @@
     socket.on('wallet', setWallet);
     socket.on('state', (s) => {
       serverOffset = s.serverTime - Date.now();
+      prev = state && state.code === s.code ? state : null;
       state = s;
       renderTable();
     });
@@ -253,14 +569,15 @@
     });
     socket.on('chat', addChat);
     socket.on('log', addLog);
+    socket.on('emote', onEmote);
   }
 
-  // ---------- chat & log ----------
+  // ---------- chat, log, emotes ----------
   function scrollFeed(feed) {
     feed.scrollTop = feed.scrollHeight;
   }
-  function addChat(m) {
-    const line = el('div', 'msg');
+  function addChat(m, cls) {
+    const line = el('div', 'msg' + (typeof cls === 'string' ? ' ' + cls : ''));
     line.append(el('b', null, m.username + ': '), document.createTextNode(m.text));
     $('#chat-list').append(line);
     scrollFeed($('#chat-list'));
@@ -286,7 +603,33 @@
     });
   }
 
-  // ---------- table top bar ----------
+  function buildEmotePicker() {
+    const picker = $('#emote-picker');
+    picker.innerHTML = '';
+    for (const e of config.emotes) {
+      const b = el('button', null, e);
+      b.addEventListener('click', () => {
+        if (socket) socket.emit('emote', e);
+        picker.classList.add('hidden');
+      });
+      picker.append(b);
+    }
+  }
+  $('#emote-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    $('#emote-picker').classList.toggle('hidden');
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.emote-wrap')) $('#emote-picker').classList.add('hidden');
+  });
+
+  function onEmote({ username, emoji }) {
+    const i = state ? state.seats.findIndex((p) => p && p.username === username) : -1;
+    if (i !== -1) FX.emote(seatUI[i].node, emoji);
+    else addChat({ username, text: emoji }, 'emote-msg');
+  }
+
+  // ---------- table chrome ----------
   $('#leave-btn').addEventListener('click', async () => {
     const seated = state && state.you;
     if (seated && !confirm('Leave the table? Your chips go back to your account (if you are in a hand, you fold).')) return;
@@ -304,68 +647,135 @@
     }
   });
 
-  // ---------- cards ----------
+  const THEMES = ['green', 'blue', 'red', 'purple', 'black'];
+  function applyTheme(t) {
+    $('#table-wrap').dataset.theme = t;
+    store.set('pokerTheme', t);
+  }
+  applyTheme(THEMES.includes(store.get('pokerTheme')) ? store.get('pokerTheme') : 'green');
+  $('#theme-btn').addEventListener('click', () => {
+    const next = THEMES[(THEMES.indexOf($('#table-wrap').dataset.theme) + 1) % THEMES.length];
+    applyTheme(next);
+    toast(`Table color: ${next}`);
+  });
+
+  function applyMute(m) {
+    FX.setMuted(m);
+    store.set('pokerMuted', m ? '1' : null);
+    $('#sound-btn').textContent = m ? '🔇' : '🔊';
+  }
+  applyMute(store.get('pokerMuted') === '1');
+  $('#sound-btn').addEventListener('click', () => applyMute(!FX.muted));
+
+  // ---------- cards & chips ----------
   const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
-  function cardEl(code, highlightSet) {
+  function cardEl(code) {
     if (!code || code === '??') return el('div', 'card back');
     const c = el('div', 'card' + (code[1] === 'h' || code[1] === 'd' ? ' red' : ''));
-    c.append(el('span', 'rank', code[0] === 'T' ? '10' : code[0]), el('span', 'suit', SUIT[code[1]]));
-    if (highlightSet) c.classList.add(highlightSet.has(code) ? 'highlight' : 'dim');
+    c.dataset.card = code;
+    c.append(el('span', 'r', code[0] === 'T' ? '10' : code[0]), el('span', 's', SUIT[code[1]]), el('span', 'big', SUIT[code[1]]));
     return c;
+  }
+
+  const CHIP_COLORS = [[1000, '#1b1b1b'], [500, '#8e4ec6'], [100, '#2a3a9e'], [25, '#1f8f53'], [5, '#c0282e'], [1, '#d9d9d9']];
+  function chipStack(amount) {
+    const wrap = el('div', 'chipstack');
+    const discs = [];
+    let rem = amount;
+    for (const [v, c] of CHIP_COLORS) {
+      while (rem >= v && discs.length < 5) {
+        discs.push(c);
+        rem -= v;
+      }
+    }
+    discs.forEach((c, i) => {
+      const d = el('div', 'chipdisc');
+      d.style.background = c;
+      d.style.top = -i * 3 + 'px';
+      wrap.append(d);
+    });
+    return wrap;
+  }
+
+  function applyHighlight(container, highlight) {
+    for (const c of container.querySelectorAll('.card')) {
+      c.classList.toggle('highlight', !!highlight && highlight.has(c.dataset.card));
+      c.classList.toggle('dim', !!highlight && !!c.dataset.card && !highlight.has(c.dataset.card));
+    }
   }
 
   // ---------- seat layout ----------
   // positions (in % of the table box), index 0 = bottom centre, going clockwise
-  const WIDE = [[50, 103], [17, 95], [-3, 62], [3, 18], [30, -5], [70, -5], [97, 18], [103, 62], [83, 95]];
-  const TALL = [[50, 102], [10, 88], [3, 62], [3, 32], [24, 3], [76, 3], [97, 32], [97, 62], [90, 88]];
+  const WIDE = [[50, 102], [17, 94], [-2, 62], [3, 18], [30, -4], [70, -4], [97, 18], [102, 62], [83, 94]];
+  const TALL = [[50, 101], [9, 86], [1, 58], [3, 26], [26, 1], [74, 1], [97, 26], [99, 58], [91, 86]];
+  const lerp = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 
-  function lerp(a, b, t) {
-    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-  }
+  const seatUI = [];
+  let dealerNode;
+  (function buildSeats() {
+    const seatsEl = $('#seats');
+    for (let i = 0; i < 9; i++) {
+      const node = el('div', 'seat');
+      const hole = el('div', 'hole');
+      const avWrap = el('div', 'av-wrap');
+      const ring = el('div', 'ring');
+      const avatar = el('div', 'avatar');
+      avWrap.append(ring, avatar);
+      const plate = el('div', 'plate');
+      const tag = el('div', 'tag');
+      const name = el('div', 'name');
+      const stack = el('div', 'stack');
+      plate.append(tag, name, stack);
+      node.append(hole, avWrap, plate);
+      avWrap.addEventListener('click', () => {
+        if (node.classList.contains('empty')) openBuyIn('sit', i);
+      });
+      const bet = el('div', 'bet hidden');
+      seatsEl.append(node, bet);
+      seatUI.push({ node, hole, avatar, ring, name, stack, tag, bet, avKey: '', holeKey: '', betAmt: -1 });
+    }
+    dealerNode = el('div', 'dealer-btn hidden', 'D');
+    seatsEl.append(dealerNode);
+  })();
+
+  const IN_HAND = ['preflop', 'flop', 'turn', 'river'];
 
   function renderTable() {
     if (!state) return;
     const s = state;
-    const wrap = $('.table-wrap');
-    const tall = wrap.clientHeight > wrap.clientWidth;
-    const layout = tall ? TALL : WIDE;
+    const wrap = $('#table-wrap');
+    const W = wrap.clientWidth;
+    const H = wrap.clientHeight;
+    const layout = H > W ? TALL : WIDE;
     const pivot = s.you ? s.you.seat : 0;
     const posOf = (seat) => layout[(seat - pivot + 9) % 9];
+    const newHand = !prev || prev.handNumber !== s.handNumber;
 
     $('#blinds-info').textContent = `Blinds ${fmt(s.smallBlind)} / ${fmt(s.bigBlind)}`;
 
-    // highlight winning cards after a showdown
+    // winning cards get highlighted after a showdown
     let highlight = null;
-    const winners = new Set();
+    const winners = new Map();
     if (s.phase === 'showdown' && s.lastResult) {
-      for (const w of s.lastResult.winners) winners.add(w.username);
+      for (const w of s.lastResult.winners) winners.set(w.username, w);
       const main = s.lastResult.winners.find((w) => w.cards);
       if (main) highlight = new Set(main.cards);
     }
 
-    // board
-    const board = $('#board');
-    const boardKey = s.board.join(',') + '|' + (highlight ? [...highlight].join(',') : '');
-    if (board.dataset.key !== boardKey) {
-      board.dataset.key = boardKey;
-      board.innerHTML = '';
-      for (const c of s.board) board.append(cardEl(c, highlight));
-    }
+    renderBoard(s, highlight);
 
     const pot = $('#pot');
     pot.innerHTML = '';
     if (s.totalPot > 0 && s.phase !== 'showdown') {
-      pot.append(el('span', 'chip-icon'), el('span', null, 'Pot ' + fmt(s.totalPot)));
+      pot.append(chipStack(s.totalPot), el('span', null, 'Pot ' + fmt(s.totalPot)));
     }
 
-    // status line
     const status = $('#status');
     status.innerHTML = '';
     const seatedCount = s.seats.filter(Boolean).length;
     if (s.phase === 'showdown' && s.lastResult) {
       for (const w of s.lastResult.winners) {
-        const line = el('div', 'win', `${w.username} wins ${fmt(w.amount)}${w.hand ? ' with ' + w.hand : ''}`);
-        status.append(line);
+        status.append(el('div', 'win', `${w.username} wins ${fmt(w.amount)}${w.hand ? ' with ' + w.hand : ''}`));
       }
     } else if (s.phase === 'waiting') {
       status.textContent = seatedCount < 2
@@ -373,90 +783,189 @@
         : 'Waiting for the next hand…';
     }
 
-    // seats
-    const seatsEl = $('#seats');
-    seatsEl.innerHTML = '';
+    let chipSound = false;
     for (let i = 0; i < 9; i++) {
+      const ui = seatUI[i];
       const p = s.seats[i];
       const pos = posOf(i);
-      const node = el('div', 'seat');
-      node.style.left = pos[0] + '%';
-      node.style.top = pos[1] + '%';
+      ui.node.style.left = pos[0] + '%';
+      ui.node.style.top = pos[1] + '%';
 
       if (!p) {
-        if (s.you) continue; // seated players don't need empty seat buttons
-        node.classList.add('empty');
-        const plate = el('div', 'plate');
-        const btn = el('button', 'btn tiny', 'Sit here');
-        btn.addEventListener('click', () => openBuyIn('sit', i));
-        plate.append(btn);
-        node.append(plate);
-        seatsEl.append(node);
+        ui.node.className = 'seat empty' + (s.you ? ' hidden-seat' : '');
+        if (ui.avKey !== 'empty') {
+          ui.avatar.removeAttribute('style');
+          ui.avatar.textContent = '+';
+          ui.avKey = 'empty';
+        }
+        ui.name.textContent = 'Sit here';
+        ui.stack.textContent = '';
+        ui.tag.className = 'tag';
+        ui.hole.innerHTML = '';
+        ui.holeKey = '';
+        ui.bet.classList.add('hidden');
+        ui.betAmt = -1;
         continue;
       }
 
-      if (s.you && s.you.seat === i) node.classList.add('me');
-      if (s.toAct === i) node.classList.add('acting');
-      if (p.folded) node.classList.add('folded');
-      if (!p.connected) node.classList.add('away');
-      if (winners.has(p.username)) node.classList.add('winner');
+      const cls = ['seat'];
+      if (s.you && s.you.seat === i) cls.push('me');
+      if (s.toAct === i) cls.push('acting');
+      if (p.folded) cls.push('folded');
+      if (!p.connected) cls.push('away');
+      if (p.sittingOut && !p.inHand) cls.push('out');
+      if (winners.has(p.username)) cls.push('winner');
+      ui.node.className = cls.join(' ');
 
-      const cards = el('div', 'cards');
-      const myWinHighlight = highlight && winners.has(p.username) ? highlight : null;
-      for (const c of p.cards) cards.append(cardEl(c, c !== '??' && myWinHighlight ? myWinHighlight : null));
-      node.append(cards);
+      const avKey = JSON.stringify(p.avatar);
+      if (ui.avKey !== avKey) {
+        fillAvatar(ui.avatar, p.avatar);
+        ui.avKey = avKey;
+      }
+      ui.name.textContent = p.username;
+      ui.stack.textContent = fmt(p.stack);
 
-      const plate = el('div', 'plate');
       let label = p.lastAction;
       if (p.sittingOut && !p.inHand) label = 'Sitting out';
-      if (label) plate.append(el('div', 'last-action', label));
-      plate.append(el('div', 'name', p.username), el('div', 'stack', fmt(p.stack)));
-      if (s.toAct === i) {
-        const timer = el('div', 'timer');
-        timer.dataset.deadline = s.turnDeadline;
-        plate.append(timer);
-      }
-      node.append(plate);
-      seatsEl.append(node);
+      ui.tag.textContent = label || '';
+      ui.tag.className = 'tag' + (label ? ' show' : '')
+        + (label === 'Fold' ? ' fold' : '')
+        + (label === 'All-in' ? ' allin' : '')
+        + (/^(Bet|Raise)/.test(label || '') ? ' raise' : '');
 
-      if (p.bet > 0) {
-        const bp = lerp(pos, [50, 50], tall ? 0.5 : 0.4);
-        const bet = el('div', 'bet');
-        bet.style.left = bp[0] + '%';
-        bet.style.top = bp[1] + '%';
-        bet.append(el('span', 'chip-icon'), el('span', null, fmt(p.bet)));
-        seatsEl.append(bet);
+      // hole cards
+      const holeKey = s.handNumber + ':' + p.cards.join(',');
+      if (ui.holeKey !== holeKey) {
+        const dealing = newHand && p.cards.length > 0 && IN_HAND.includes(s.phase);
+        ui.hole.innerHTML = '';
+        p.cards.forEach((c, k) => {
+          const card = cardEl(c);
+          if (dealing) {
+            card.classList.add('deal');
+            card.style.setProperty('--dx', ((50 - pos[0]) / 100) * W + 'px');
+            card.style.setProperty('--dy', ((50 - pos[1]) / 100) * H + 'px');
+            card.style.animationDelay = (k * 9 + ((i - s.dealer + 9) % 9)) * 45 + 'ms';
+          }
+          ui.hole.append(card);
+        });
+        ui.holeKey = holeKey;
       }
-      if (s.dealer === i && s.handNumber > 0) {
-        const dp = lerp(pos, [50, 50], tall ? 0.3 : 0.27);
-        const d = el('div', 'dealer-btn', 'D');
-        d.style.left = (dp[0] + (pos[1] > 50 ? 8 : -8)) + '%';
-        d.style.top = dp[1] + '%';
-        seatsEl.append(d);
+      applyHighlight(ui.hole, winners.has(p.username) ? highlight : null);
+
+      // bet in front of the player
+      if (p.bet > 0) {
+        const bp = lerp(pos, [50, 50], H > W ? 0.42 : 0.38);
+        ui.bet.style.left = bp[0] + '%';
+        ui.bet.style.top = bp[1] + '%';
+        if (ui.betAmt !== p.bet) {
+          if (p.bet > ui.betAmt && ui.betAmt >= 0) chipSound = true;
+          ui.bet.innerHTML = '';
+          ui.bet.append(chipStack(p.bet), el('span', null, fmt(p.bet)));
+          ui.betAmt = p.bet;
+        }
+        ui.bet.classList.remove('hidden');
+      } else {
+        ui.bet.classList.add('hidden');
+        ui.betAmt = 0;
       }
     }
 
+    // dealer button slides between seats
+    if (s.dealer >= 0 && s.handNumber > 0 && s.seats[s.dealer]) {
+      // sits beside the avatar, on the side facing the middle of the table
+      const pos = posOf(s.dealer);
+      const side = pos[0] > 50 ? -1 : 1;
+      const dx = side * (H > W ? 34 : 44);
+      dealerNode.style.left = `calc(${pos[0]}% + ${dx}px)`;
+      dealerNode.style.top = `${pos[1]}%`;
+      dealerNode.classList.remove('hidden');
+    } else dealerNode.classList.add('hidden');
+
     const specs = s.spectators || [];
-    $('#spectators').textContent = specs.length ? 'Watching: ' + specs.join(', ') : '';
+    $('#spectators').textContent = specs.length ? '👀 Watching: ' + specs.join(', ') : '';
 
     renderActions();
     updateTimers();
+    playEvents(s, winners, chipSound, newHand);
+  }
 
+  let boardCards = [];
+  function renderBoard(s, highlight) {
+    const board = $('#board');
+    const same = s.board.length >= boardCards.length && boardCards.every((c, i) => s.board[i] === c);
+    if (!same) {
+      board.innerHTML = '';
+      boardCards = [];
+    }
+    const fresh = s.board.slice(boardCards.length);
+    fresh.forEach((c, k) => {
+      const card = cardEl(c);
+      card.classList.add('flip');
+      card.style.animationDelay = k * 110 + 'ms';
+      board.append(card);
+      setTimeout(() => FX.sound('card'), k * 110);
+    });
+    boardCards = s.board.slice();
+    applyHighlight(board, highlight);
+  }
+
+  // Sounds and effects that react to changes between two states.
+  function playEvents(s, winners, chipSound, newHand) {
+    if (chipSound) FX.sound('chip');
+    if (newHand && prev && IN_HAND.includes(s.phase)) {
+      for (let k = 0; k < 4; k++) setTimeout(() => FX.sound('card'), k * 90);
+    }
     const myTurn = !!(s.you && s.you.myTurn);
-    if (myTurn && !wasMyTurn) beep();
-    wasMyTurn = myTurn;
+    if (myTurn && !(prev && prev.you && prev.you.myTurn)) {
+      FX.sound('turn');
+      if (navigator.vibrate) navigator.vibrate(120);
+    }
+
+    if (s.phase === 'showdown' && s.lastResult && celebratedHand !== s.handNumber) {
+      celebratedHand = s.handNumber;
+      if (!prev) return; // just joined: don't replay an old celebration
+      const boardRect = centerOf($('#board'));
+      const potRect = s.board.length ? boardRect : centerOf($('#pot'));
+      const winnerRects = [];
+      let best = null;
+      for (const w of s.lastResult.winners) {
+        const i = s.seats.findIndex((p) => p && p.username === w.username);
+        if (i === -1) continue;
+        const r = centerOf(seatUI[i].avatar);
+        winnerRects.push(r);
+        FX.flyChips(potRect, r, Math.min(10, 4 + Math.max(0, w.rank)));
+        const amt = el('div', 'win-amount', '+' + fmt(w.amount));
+        seatUI[i].node.append(amt);
+        setTimeout(() => amt.remove(), 1900);
+        if (!best || (w.rank ?? -1) > (best.rank ?? -1)) best = w;
+      }
+      if (best) {
+        FX.celebrate({
+          rank: best.rank ?? -1,
+          handName: best.hand,
+          winnerRects,
+          boardRect,
+          tableRect: centerOf($('#table-wrap')),
+          layer: $('#fx-layer'),
+          tableEl: $('#table-wrap'),
+        });
+      }
+    }
   }
 
   function updateTimers() {
+    if (!state) return;
     const now = Date.now() + serverOffset;
-    for (const t of $$('.seat .timer')) {
-      const deadline = Number(t.dataset.deadline);
-      const left = Math.max(0, deadline - now);
-      t.style.width = Math.min(100, (left / 30000) * 100) + '%';
-      t.style.background = left < 8000 ? 'var(--red)' : '';
+    for (let i = 0; i < 9; i++) {
+      const ui = seatUI[i];
+      if (state.toAct !== i) continue;
+      const total = state.turnMs || 30000;
+      const p = Math.max(0, Math.min(1, (state.turnDeadline - now) / total));
+      ui.ring.style.setProperty('--p', p.toFixed(3));
+      ui.ring.style.setProperty('--ring-color', p > 0.5 ? '#2fbf71' : p > 0.25 ? '#f2c14e' : '#e5484d');
     }
   }
-  setInterval(updateTimers, 250);
+  setInterval(updateTimers, 100);
   window.addEventListener('resize', () => renderTable());
 
   // ---------- action bar ----------
@@ -469,7 +978,7 @@
     const you = s.you;
 
     if (!you) {
-      bar.append(el('span', 'muted', 'You are watching. Pick an empty seat to join the game.'));
+      bar.append(el('span', 'muted', 'You are watching. Tap an empty seat (+) to join the game.'));
       raiseDraft = null;
       return;
     }
@@ -503,14 +1012,12 @@
         range.min = min;
         range.max = max;
         range.step = 1;
-        range.value = raiseDraft;
         const num = el('input', 'amount-input');
         num.type = 'number';
         num.min = min;
         num.max = max;
-        num.value = raiseDraft;
         const verb = s.currentBet === 0 ? 'Bet' : 'Raise to';
-        const raiseBtn = el('button', 'btn primary', `${verb} ${fmt(raiseDraft)}`);
+        const raiseBtn = el('button', 'btn primary');
         const setVal = (v) => {
           v = Math.max(min, Math.min(max, Math.round(Number(v) || min)));
           raiseDraft = v;
@@ -541,7 +1048,7 @@
     }
 
     raiseDraft = null;
-    const inHand = mine.inHand && !mine.folded && ['preflop', 'flop', 'turn', 'river'].includes(s.phase);
+    const inHand = mine.inHand && !mine.folded && IN_HAND.includes(s.phase);
     if (inHand) bar.append(el('span', 'muted', 'Waiting for your turn…'));
 
     if (mine.sittingOut) {
@@ -576,19 +1083,19 @@
   let buyInSeat = null;
 
   function openBuyIn(mode, seat) {
-    if (!me) return;
+    if (!me || !state) return;
     buyInMode = mode;
     buyInSeat = seat;
     const bb = state.bigBlind;
     const wallet = me.chips;
     $('#buyin-error').textContent = '';
     if (wallet < bb) {
-      toast(`You need at least ${fmt(bb)} chips. Go to the lobby to claim free chips.`);
+      toast(`You need at least ${fmt(bb)} chips. Go to the lobby for your daily reward or free chips.`);
       return;
     }
     const min = Math.min(wallet, bb * 10);
     const max = wallet;
-    const def = Math.min(wallet, bb * 100);
+    const def = Math.min(wallet, bb * 50);
     $('#buyin-title').textContent = mode === 'sit' ? 'Buy in' : 'Add chips';
     $('#buyin-hint').textContent = `You have ${fmt(wallet)} chips in your account. Blinds are ${fmt(state.smallBlind)} / ${fmt(bb)}.`;
     $('#buyin-confirm').textContent = mode === 'sit' ? 'Sit down' : 'Add chips';
@@ -619,6 +1126,10 @@
 
   // ---------- boot ----------
   async function boot() {
+    try {
+      config = await api('/api/config');
+    } catch {}
+    buildEmotePicker();
     const code = roomFromUrl();
     if (code) $('#join-code').value = code;
     if (!token) return show('auth');

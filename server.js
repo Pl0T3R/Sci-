@@ -9,14 +9,16 @@ const { Table } = require('./src/table');
 const PORT = process.env.PORT || 3000;
 const DISCONNECT_GRACE_MS = 2 * 60 * 1000; // stand up players who are gone this long
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const EMOTES = ['😂', '😭', '😡', '😎', '🤔', '👏', '🔥', '💀', '😱', '🤑', '👍', '🙏', '🤡', '😴', '🥳', '🤯'];
+const EMOTE_COOLDOWN_MS = 1200;
 
 db.load();
 
 const app = express();
-app.use(express.json({ limit: '10kb' }));
+app.use(express.json({ limit: '100kb' })); // room for a small avatar photo
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- simple login rate limit ----------
+// ---------- simple rate limit for login / register / reset ----------
 const attempts = new Map();
 function rateLimited(ip) {
   const now = Date.now();
@@ -27,54 +29,95 @@ function rateLimited(ip) {
   return a.count > 20;
 }
 
-function authUser(req) {
-  const header = req.get('authorization') || '';
-  return db.userFromToken(header.replace(/^Bearer /, ''));
+function bearer(req) {
+  return (req.get('authorization') || '').replace(/^Bearer /, '');
 }
 
-app.post('/api/register', (req, res) => {
-  if (rateLimited(req.ip)) return res.status(429).json({ error: 'Too many attempts, wait a minute' });
-  try {
-    const token = db.register(req.body.username, req.body.password);
-    res.json({ token, user: db.publicUser(db.userFromToken(token)) });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
+// Wraps a handler: sends { error } with status 400 on thrown errors.
+function handle(fn, { auth = true, limited = false } = {}) {
+  return (req, res) => {
+    if (limited && rateLimited(req.ip)) return res.status(429).json({ error: 'Too many attempts, wait a minute' });
+    const u = auth ? db.userFromToken(bearer(req)) : null;
+    if (auth && !u) return res.status(401).json({ error: 'Not logged in' });
+    try {
+      res.json(fn(req.body || {}, u, req) || { ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  };
+}
 
-app.post('/api/login', (req, res) => {
-  if (rateLimited(req.ip)) return res.status(429).json({ error: 'Too many attempts, wait a minute' });
-  try {
-    const token = db.login(req.body.username, req.body.password);
-    res.json({ token, user: db.publicUser(db.userFromToken(token)) });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
-});
+const withUser = (token, extra = {}) => ({ token, user: db.publicUser(db.userFromToken(token)), ...extra });
+
+app.post('/api/register', handle((b) => {
+  const { token, recoveryCode } = db.register(b.username, b.password);
+  return withUser(token, { recoveryCode });
+}, { auth: false, limited: true }));
+
+app.post('/api/login', handle((b) => withUser(db.login(b.username, b.password)), { auth: false, limited: true }));
+
+app.post('/api/reset-password', handle((b) => {
+  const { token, recoveryCode } = db.resetPassword(b.username, b.recoveryCode, b.newPassword);
+  return withUser(token, { recoveryCode });
+}, { auth: false, limited: true }));
+
+app.post('/api/change-password', handle((b, u) => withUser(db.changePassword(u, b.oldPassword, b.newPassword)), { limited: true }));
+
+app.post('/api/recovery-code', handle((b, u) => ({ recoveryCode: db.regenerateRecovery(u, b.password) }), { limited: true }));
 
 app.post('/api/logout', (req, res) => {
-  db.logout((req.get('authorization') || '').replace(/^Bearer /, ''));
+  db.logout(bearer(req));
   res.json({ ok: true });
 });
 
-app.get('/api/me', (req, res) => {
-  const u = authUser(req);
-  if (!u) return res.status(401).json({ error: 'Not logged in' });
-  res.json({ user: db.publicUser(u) });
-});
+app.get('/api/me', handle((b, u) => ({ user: db.publicUser(u) })));
 
-app.post('/api/refill', (req, res) => {
-  const u = authUser(req);
-  if (!u) return res.status(401).json({ error: 'Not logged in' });
-  try {
-    db.refill(u);
-    res.json({ user: db.publicUser(u) });
-  } catch (e) {
-    res.status(400).json({ error: e.message });
-  }
+app.post('/api/refill', handle((b, u) => {
+  db.refill(u);
+  sendWallet(u.username);
+  return { user: db.publicUser(u) };
+}));
+
+app.post('/api/daily', handle((b, u) => {
+  const amount = db.claimDaily(u);
+  sendWallet(u.username);
+  return { amount, user: db.publicUser(u) };
+}));
+
+app.get('/api/miners', handle((b, u) => ({ ...db.minerInfo(u), serverTime: Date.now() })));
+
+app.post('/api/miners/buy', handle((b, u) => {
+  db.buyMiner(u, b.id);
+  sendWallet(u.username);
+  return { ...db.minerInfo(u), serverTime: Date.now(), user: db.publicUser(u) };
+}));
+
+app.post('/api/miners/collect', handle((b, u) => {
+  const amount = db.collectMiners(u);
+  sendWallet(u.username);
+  return { amount, ...db.minerInfo(u), serverTime: Date.now(), user: db.publicUser(u) };
+}));
+
+app.post('/api/avatar', handle((b, u) => {
+  db.setAvatar(u, b);
+  refreshRoomsOf(u.username);
+  return { user: db.publicUser(u) };
+}));
+
+app.get('/api/avatar/:username', (req, res) => {
+  const img = db.avatarImage(req.params.username);
+  if (!img) return res.status(404).end();
+  const [, type, b64] = img.match(/^data:(image\/\w+);base64,(.+)$/);
+  res.set('Content-Type', type);
+  res.set('Cache-Control', 'public, max-age=31536000, immutable'); // URL carries a version
+  res.send(Buffer.from(b64, 'base64'));
 });
 
 app.get('/api/leaderboard', (req, res) => res.json({ leaders: db.leaderboard() }));
+
+app.get('/api/config', (req, res) => res.json({
+  avatarEmojis: db.AVATAR_EMOJIS, avatarColors: db.AVATAR_COLORS, emotes: EMOTES,
+}));
 
 // ---------- rooms ----------
 const server = http.createServer(app);
@@ -123,9 +166,17 @@ function createRoom(code, smallBlind, bigBlind) {
 function broadcast(room) {
   for (const [username, sockets] of room.members) {
     const state = room.table.stateFor(username);
+    for (const seat of state.seats) if (seat) seat.avatar = db.avatarOf(seat.username);
     state.spectators = [...room.members.keys()].filter((n) => room.table.seatOf(n) === -1);
     state.serverTime = Date.now();
     for (const id of sockets) io.to(id).emit('state', state);
+  }
+}
+
+// Re-send table state to rooms where this user is visible (e.g. after an avatar change).
+function refreshRoomsOf(username) {
+  for (const room of rooms.values()) {
+    if (room.members.has(username) || room.table.seatOf(username) !== -1) broadcast(room);
   }
 }
 
@@ -304,6 +355,15 @@ io.on('connection', (socket) => {
     room.chat.push(msg);
     if (room.chat.length > 50) room.chat.shift();
     io.to(room.code).emit('chat', msg);
+  });
+
+  let lastEmote = 0;
+  socket.on('emote', (emoji) => {
+    if (!room || !EMOTES.includes(emoji)) return;
+    const now = Date.now();
+    if (now - lastEmote < EMOTE_COOLDOWN_MS) return;
+    lastEmote = now;
+    io.to(room.code).emit('emote', { username, emoji });
   });
 
   socket.on('disconnect', leave);

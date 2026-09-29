@@ -12,17 +12,32 @@
     <div class="panel auth-panel">
       <h1 class="logo">♠ Poker Night</h1>
       <p class="muted">Texas Hold'em with your friends</p>
-      <div class="tabs">
-        <button class="tab active" data-tab="login">Log in</button>
-        <button class="tab" data-tab="register">Register</button>
+      <div id="auth-main">
+        <div class="tabs">
+          <button class="tab active" data-tab="login">Log in</button>
+          <button class="tab" data-tab="register">Register</button>
+        </div>
+        <form id="auth-form" autocomplete="on">
+          <input id="auth-username" name="username" placeholder="Username" autocomplete="username" required>
+          <input id="auth-password" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+          <button type="submit" class="btn primary" id="auth-submit">Log in</button>
+          <p id="auth-error" class="error"></p>
+        </form>
+        <button class="link" id="forgot-link">Forgot password?</button>
+        <p class="muted small" id="auth-hint">New players start with 1,000 chips.</p>
       </div>
-      <form id="auth-form" autocomplete="on">
-        <input id="auth-username" name="username" placeholder="Username" autocomplete="username" required>
-        <input id="auth-password" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
-        <button type="submit" class="btn primary" id="auth-submit">Log in</button>
-        <p id="auth-error" class="error"></p>
-      </form>
-      <p class="muted small" id="auth-hint">New players start with 1,000 chips.</p>
+      <div id="reset-main" class="hidden">
+        <h2>Reset password</h2>
+        <p class="muted small">Enter the recovery code you got when you registered (or generated in your profile).</p>
+        <form id="reset-form">
+          <input id="reset-username" placeholder="Username" autocomplete="username" required>
+          <input id="reset-code" placeholder="Recovery code (XXXX-XXXX-XXXX)" autocomplete="off" class="code-input" required>
+          <input id="reset-password" type="password" placeholder="New password" autocomplete="new-password" required>
+          <button type="submit" class="btn primary">Reset password</button>
+          <p id="reset-error" class="error"></p>
+        </form>
+        <button class="link" id="back-to-login">← Back to log in</button>
+      </div>
     </div>
   </section>
 
@@ -32,9 +47,13 @@
       <span class="logo small-logo">♠ Poker Night</span>
       <span class="spacer"></span>
       <span class="chip-badge" title="Chips in your account"><span class="chip-icon"></span><b class="wallet-amount">0</b></span>
-      <span id="lobby-user" class="muted"></span>
+      <button class="profile-btn" id="profile-btn" title="Profile"><span id="lobby-avatar"></span><span id="lobby-user"></span></button>
       <button class="btn ghost" id="logout-btn">Log out</button>
     </header>
+    <div id="recovery-banner" class="banner hidden">
+      🔐 Set up a recovery code so you can reset your password if you ever forget it.
+      <button class="btn tiny gold" id="recovery-banner-btn">Set up</button>
+    </div>
     <div class="lobby-grid">
       <div class="panel">
         <h2>Join a room</h2>
@@ -44,37 +63,71 @@
           <button class="btn primary" type="submit">Join</button>
         </form>
         <p id="join-error" class="error"></p>
-      </div>
-      <div class="panel">
+        <hr>
         <h2>Create a room</h2>
-        <p class="muted">Start a new table and share the code.</p>
         <form id="create-form">
-          <label>Blinds
-            <select id="create-blinds">
-              <option value="2">1 / 2</option>
-              <option value="10">5 / 10</option>
-              <option value="20" selected>10 / 20</option>
-              <option value="50">25 / 50</option>
-              <option value="100">50 / 100</option>
-              <option value="500">250 / 500</option>
-            </select>
-          </label>
-          <label>Custom code <span class="muted">(optional)</span>
-            <input id="create-code" placeholder="e.g. FRIDAY" maxlength="8" autocomplete="off" class="code-input">
-          </label>
-          <button class="btn primary" type="submit">Create room</button>
+          <div class="row">
+            <label class="grow">Blinds
+              <select id="create-blinds">
+                <option value="2">1 / 2</option>
+                <option value="10">5 / 10</option>
+                <option value="20" selected>10 / 20</option>
+                <option value="50">25 / 50</option>
+                <option value="100">50 / 100</option>
+                <option value="500">250 / 500</option>
+              </select>
+            </label>
+            <label class="grow">Custom code <span class="muted">(optional)</span>
+              <input id="create-code" placeholder="e.g. FRIDAY" maxlength="8" autocomplete="off" class="code-input">
+            </label>
+          </div>
+          <button class="btn primary wide" type="submit">Create room</button>
         </form>
         <p id="create-error" class="error"></p>
       </div>
-      <div class="panel">
-        <h2>Your chips</h2>
-        <p class="big-number"><span class="chip-icon"></span><b class="wallet-amount">0</b></p>
-        <p class="muted small">Chips are saved to your account. Whatever you have when you leave a table goes back here.</p>
-        <button class="btn gold hidden" id="refill-btn">Claim 500 free chips</button>
-        <p id="refill-error" class="error"></p>
+
+      <div class="panel rewards">
+        <h2>Rewards</h2>
+        <div class="reward-box" id="daily-box">
+          <div class="reward-icon">🎁</div>
+          <div class="grow">
+            <b>Daily reward</b>
+            <div class="muted small" id="daily-text">+250 chips every day</div>
+          </div>
+          <button class="btn gold" id="daily-btn">Claim 250</button>
+        </div>
+        <div class="reward-box hidden" id="refill-box">
+          <div class="reward-icon">🆘</div>
+          <div class="grow">
+            <b>Broke?</b>
+            <div class="muted small">Under 100 chips — grab 500 (once per hour)</div>
+          </div>
+          <button class="btn gold" id="refill-btn">Claim 500</button>
+        </div>
+        <p id="reward-error" class="error"></p>
+        <div class="big-number"><span class="chip-icon"></span><b class="wallet-amount">0</b></div>
+        <p class="muted small">Chips are saved to your account. Whatever you have when you leave a table comes back here.</p>
       </div>
+
+      <div class="panel miners-panel">
+        <div class="miners-head">
+          <div>
+            <h2>⛏️ Crypto Mine</h2>
+            <p class="muted small">Miners dig up chips 24/7 — even while you're offline. The vault holds <b>24 hours</b> of mining, so come back daily to collect. Each extra miner of the same kind costs 15% more.</p>
+          </div>
+          <div class="vault">
+            <div class="vault-row"><span class="muted small">Vault</span><b id="vault-amount">0</b><span class="muted small" id="vault-cap"></span></div>
+            <div class="bar"><div class="bar-fill" id="vault-bar"></div></div>
+            <div class="vault-row"><span class="muted small" id="mine-rate">0 chips / hour</span>
+              <button class="btn primary" id="collect-btn" disabled>Collect</button></div>
+          </div>
+        </div>
+        <div id="miner-list" class="miner-list"></div>
+        <p id="miner-error" class="error"></p>
+      </div>
+
       <div class="panel">
-        <h2>Leaderboard</h2>
+        <h2>🏆 Leaderboard</h2>
         <ol id="leaderboard" class="leaderboard"></ol>
       </div>
     </div>
@@ -89,21 +142,31 @@
       </span>
       <span class="muted" id="blinds-info"></span>
       <span class="spacer"></span>
+      <button class="icon-btn" id="theme-btn" title="Change table color">🎨</button>
+      <button class="icon-btn" id="sound-btn" title="Sound on/off">🔊</button>
       <span class="chip-badge" title="Chips in your account (not on the table)"><span class="chip-icon"></span><b class="wallet-amount">0</b></span>
     </header>
     <div class="table-layout">
       <div class="table-area">
-        <div class="table-wrap">
+        <div class="table-wrap" id="table-wrap">
           <div class="felt">
             <div class="felt-inner">
+              <div class="felt-logo">♠ POKER NIGHT ♥</div>
               <div id="pot" class="pot"></div>
               <div id="board" class="board"></div>
               <div id="status" class="status"></div>
             </div>
           </div>
           <div id="seats"></div>
+          <div id="fx-layer" class="fx-layer"></div>
         </div>
-        <div id="action-bar" class="action-bar"></div>
+        <div class="action-row">
+          <div class="emote-wrap">
+            <button class="icon-btn emote-toggle" id="emote-btn" title="Emotes">😀</button>
+            <div id="emote-picker" class="emote-picker hidden"></div>
+          </div>
+          <div id="action-bar" class="action-bar"></div>
+        </div>
       </div>
       <aside class="side">
         <div class="side-tabs">
@@ -136,9 +199,59 @@
     </form>
   </dialog>
 
+  <!-- Profile dialog -->
+  <dialog id="profile-dialog" class="wide-dialog">
+    <div class="dialog-head">
+      <h3>Your profile</h3>
+      <button class="icon-btn" id="profile-close" title="Close">✕</button>
+    </div>
+    <div class="profile-preview">
+      <div id="profile-avatar-preview"></div>
+      <div><b id="profile-name"></b><div class="muted small">Pick an avatar and a color, or upload a photo.</div></div>
+    </div>
+    <div id="avatar-grid" class="avatar-grid"></div>
+    <div id="color-grid" class="color-grid"></div>
+    <div class="row">
+      <label class="btn" for="avatar-file">📷 Upload photo</label>
+      <input type="file" id="avatar-file" accept="image/*" hidden>
+      <span class="spacer"></span>
+      <button class="btn primary" id="avatar-save">Save avatar</button>
+    </div>
+    <p id="avatar-error" class="error"></p>
+    <hr>
+    <h4>Change password</h4>
+    <form id="password-form" class="stack">
+      <input type="password" id="pw-old" placeholder="Current password" autocomplete="current-password" required>
+      <input type="password" id="pw-new" placeholder="New password" autocomplete="new-password" required>
+      <button class="btn" type="submit">Change password</button>
+      <p id="pw-error" class="error"></p>
+    </form>
+    <hr>
+    <h4>Recovery code</h4>
+    <p class="muted small">If you forget your password, a recovery code lets you set a new one. Getting a new code makes the old one stop working.</p>
+    <form id="recovery-form" class="stack">
+      <input type="password" id="recovery-pw" placeholder="Confirm your password" autocomplete="current-password" required>
+      <button class="btn" type="submit">Get a new recovery code</button>
+      <p id="recovery-error" class="error"></p>
+    </form>
+  </dialog>
+
+  <!-- Recovery code dialog -->
+  <dialog id="code-dialog">
+    <h3>🔐 Your recovery code</h3>
+    <p class="muted small">Save this somewhere safe (screenshot, notes app). It's the <b>only</b> way to reset your password if you forget it, and it won't be shown again.</p>
+    <div class="recovery-code" id="recovery-code"></div>
+    <div class="row end">
+      <button class="btn" id="copy-code-btn">Copy</button>
+      <button class="btn primary" id="code-ok-btn">I saved it</button>
+    </div>
+  </dialog>
+
+  <canvas id="fx-canvas"></canvas>
   <div id="toast" class="toast hidden"></div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="effects.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -74,7 +74,11 @@ function bestHand(cards) {
   };
   pick(0);
   best.name = CATEGORY_NAMES[best.score[0]];
-  if (best.score[0] === 8 && best.score[1] === 14) best.name = 'Royal Flush';
+  best.rank = best.score[0]; // 0 = high card ... 8 = straight flush, 9 = royal flush
+  if (best.score[0] === 8 && best.score[1] === 14) {
+    best.name = 'Royal Flush';
+    best.rank = 9;
+  }
   return best;
 }
 

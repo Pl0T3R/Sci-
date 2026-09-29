@@ -112,6 +112,18 @@ test('register, login, play in a shared room, chips persist', { timeout: 30000 }
     a.emit('chat', 'gg');
     assert.equal((await got).text, 'gg');
 
+    // avatars appear in table state; emotes reach the room
+    assert.ok(a.latest.seats[3].avatar.emoji);
+    const emoteGot = new Promise((r) => b.once('emote', r));
+    a.emit('emote', 'not-an-emote'); // ignored
+    a.emit('emote', '😂');
+    assert.deepEqual(await emoteGot, { username: 'Alice', emoji: '😂' });
+
+    // changing an avatar updates everyone's table
+    const avatarRes = await post('/api/avatar', { emoji: '🦊', color: '#3e63dd' }, alice.token);
+    assert.equal(avatarRes.user.avatar.emoji, '🦊');
+    await waitFor(() => b.latest.seats[0].avatar.emoji === '🦊');
+
     // stand up: chips go back to the wallet
     const aliceStack = a.latest.seats[0].stack;
     await call(a, 'stand');
@@ -127,6 +139,22 @@ test('register, login, play in a shared room, chips persist', { timeout: 30000 }
     assert.equal(bobAfter.chips + bobAfter.inPlay, 1000 + (400 - aliceStack) + 0);
     const aliceAfter = await me(alice.token);
     assert.equal(aliceAfter.chips, 600 + aliceStack);
+
+    // daily reward + miners over HTTP
+    const daily = await post('/api/daily', {}, alice.token);
+    assert.equal(daily.amount, 250);
+    assert.equal((await post('/api/daily', {}, alice.token)).status, 400);
+    const bought = await post('/api/miners/buy', { id: 'usb' }, alice.token);
+    assert.equal(bought.ratePerHour, 5);
+    assert.equal(bought.user.chips, 600 + aliceStack + 250 - 500);
+    assert.equal((await post('/api/miners/buy', { id: 'usb' }, 'bad-token')).status, 401);
+
+    // password reset with the recovery code handed out at registration
+    assert.ok(alice.recoveryCode);
+    const reset = await post('/api/reset-password', { username: 'Alice', recoveryCode: alice.recoveryCode, newPassword: 'brandnew' });
+    assert.ok(reset.token && reset.recoveryCode);
+    assert.equal((await post('/api/login', { username: 'Alice', password: 'secret1' })).status, 400);
+    assert.equal((await post('/api/login', { username: 'Alice', password: 'brandnew' })).status, 200);
   } finally {
     await stopServer(server);
     fs.rmSync(DATA_DIR, { recursive: true, force: true });

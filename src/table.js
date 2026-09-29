@@ -248,6 +248,7 @@ class Table {
     const s = this.seats[this.toAct];
     const ms = s && s.connected ? TURN_MS : DISCONNECTED_TURN_MS;
     this.turnDeadline = Date.now() + ms;
+    this.turnMs = ms;
     const seat = this.toAct;
     const hand = this.handNumber;
     this.turnTimer = setTimeout(() => {
@@ -425,7 +426,7 @@ class Table {
 
     this.lastResult = {
       winners: [...winnings.entries()].map(([s, amount]) => ({
-        username: s.username, amount, hand: hands.get(s).name, cards: hands.get(s).cards,
+        username: s.username, amount, hand: hands.get(s).name, rank: hands.get(s).rank, cards: hands.get(s).cards,
       })),
       hands: active.map((i) => ({
         username: this.seats[i].username, hand: hands.get(this.seats[i]).name,
@@ -441,7 +442,7 @@ class Table {
     w.stack += pot;
     this.phase = 'showdown';
     this.toAct = -1;
-    this.lastResult = { winners: [{ username: w.username, amount: pot, hand: null }], hands: [] };
+    this.lastResult = { winners: [{ username: w.username, amount: pot, hand: null, rank: -1 }], hands: [] };
     this.log(`${w.username} wins ${pot}`);
     this.finishHand();
   }
@@ -523,6 +524,7 @@ class Table {
       bbSeat: this.bbSeat,
       toAct: this.inProgress ? this.toAct : -1,
       turnDeadline: this.turnDeadline,
+      turnMs: this.turnMs || TURN_MS,
       handNumber: this.handNumber,
       seats,
       you,
