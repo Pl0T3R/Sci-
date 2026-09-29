@@ -20,14 +20,15 @@ A multiplayer Texas Hold'em (No-Limit) game you can play in the browser with fri
   | 🏭 Mining Farm | 150,000 | 2,250 |
 - **Avatars:** pick an emoji and a color, or upload a photo (cropped to a 128px square).
 - **Emotes:** 😂 😭 😡 😎 🤔 👏 🔥 💀 … pop up over your seat for everyone at the table.
-- **Win effects scale with the hand.** Every effect is over in about 2 seconds:
-  - a plain win: chips fly to the winner;
-  - two pair or trips: sparkles;
-  - straight or flush: confetti and a banner;
-  - full house: confetti cannons;
-  - four of a kind: coin rain and a table shake;
-  - straight flush: fireworks;
-  - royal flush: everything, plus a golden flash.
+- **Military win effects for big hands.** High card, pair, two pair and three of a kind only send the chips flying to the winner. From a straight up, each hand calls in a bigger strike, and the chips fly out of the impact:
+  - straight: a sniper scope locks onto the pot and fires;
+  - flush: a fighter jet makes a strafing run with tracer rounds;
+  - full house: a Nike missile drops onto the table, with a fireball, a shockwave and a scorch mark;
+  - four of a kind: a B-2 bomber carpet-bombs across the felt;
+  - straight flush: a missile barrage;
+  - royal flush: an air-raid siren, then a nuke with a mushroom cloud.
+
+  Each effect lasts about 1–3 seconds and comes with a stamped stencil banner and synthesized sound. You can preview them all from the lobby.
 - **The table:** leather rail with a gold inlay, textured felt in 5 colors (🎨 button), avatar seats with a countdown ring, chip stacks, dealt and flipped cards, and synthesized sound effects (🔊 to mute).
 - **Rooms by code:** one player creates a room and gets a code (or picks their own, e.g. `FRIDAY`). Friends enter the code, or open the invite link (`?room=FRIDAY`), and they're all at the same table.
 - Up to 9 players per table, with side pots, all-in run-outs, a 30-second turn timer, chat, a hand log and a leaderboard.
@@ -73,6 +74,7 @@ src/db.js          JSON-file storage: users, sessions, chips, rewards, miners, a
 src/table.js       Poker table engine (betting rounds, pots, showdown, timers)
 src/hand.js        Deck + hand evaluator
 public/            Browser client (index.html, app.js, effects.js, style.css)
+public/fonts/      Black Ops One stencil font (SIL Open Font License)
 ```
 
 The chips are play money only. They have no real-world value.

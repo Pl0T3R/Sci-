@@ -1,3 +1,10 @@
+/* Black Ops One — Copyright 2022 The Black-Ops Project Authors, SIL Open Font License 1.1 (see fonts/OFL.txt) */
+@font-face {
+  font-family: "Black Ops One";
+  src: url("fonts/black-ops-one.woff2") format("woff2");
+  font-display: swap;
+}
+
 :root {
   --bg: #0b1210;
   --panel: #15201b;
@@ -387,31 +394,67 @@ label input, label select { margin-top: 4px; }
   55% { transform: translate(-50%, -4px) rotate(0); opacity: 1; }
   100% { transform: translate(-50%, -50px) scale(.9); opacity: 0; }
 }
-.win-banner {
-  font-weight: 900; font-size: clamp(26px, 5vw, 52px); letter-spacing: 2px; text-transform: uppercase;
-  color: #fff; text-shadow: 0 4px 0 #0006, 0 0 24px #ffffff66; white-space: nowrap;
-  animation: banner 1.5s cubic-bezier(.2,.9,.3,1.2) forwards;
+.fx-global { position: fixed; inset: 0; z-index: 60; }
+
+/* military win banners */
+.mil-banner {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  font-family: "Black Ops One", Impact, "Arial Black", sans-serif; text-transform: uppercase;
+  pointer-events: none; text-align: center; max-width: 94vw;
+  align-self: end; margin-bottom: 12%; /* below the impact point, so the blast stays visible */
+  animation: stamp 2s cubic-bezier(.2,.9,.3,1) forwards;
 }
-.win-banner.tier-3, .win-banner.tier-4 {
-  background: linear-gradient(180deg, #fff6d0, #f2c14e 50%, #b8860b); -webkit-background-clip: text; background-clip: text;
-  color: transparent; text-shadow: none; filter: drop-shadow(0 4px 0 #0008) drop-shadow(0 0 18px #f2c14e88);
+.mil-banner.rank-9 { animation-duration: 2.6s; }
+.mil-title {
+  font-size: clamp(30px, 6.5vw, 66px); line-height: 1; letter-spacing: 3px; white-space: nowrap;
+  color: #e4d6a7; -webkit-text-stroke: 2px #1b1f10; paint-order: stroke fill;
+  text-shadow: 0 5px 0 #1b1f10, 0 0 30px rgba(0,0,0,.7);
 }
-.win-banner.tier-4 { animation-duration: 1.8s; font-size: clamp(30px, 6vw, 60px); }
-.win-banner.tier-5, .win-banner.tier-6 {
-  background: linear-gradient(90deg, #ff5f6d, #ffc371, #47e891, #4facfe, #c471f5, #ff5f6d);
-  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none;
-  filter: drop-shadow(0 4px 0 #0008) drop-shadow(0 0 20px #ffffff66);
-  animation: banner 2.1s cubic-bezier(.2,.9,.3,1.2) forwards, rainbow 1s linear infinite;
-  font-size: clamp(32px, 7vw, 68px);
+.mil-sub {
+  font-size: clamp(12px, 2vw, 19px); letter-spacing: 6px; color: #f1f0e4; white-space: nowrap;
+  background: #3d4a22; border: 2px solid #1b1f10; padding: 4px 16px 3px; box-shadow: 0 4px 0 #1b1f10;
 }
-@keyframes banner {
-  0% { transform: scale(.3); opacity: 0; }
-  18% { transform: scale(1.12); opacity: 1; }
-  28% { transform: scale(1); }
-  80% { transform: scale(1); opacity: 1; }
-  100% { transform: scale(1.05) translateY(-10px); opacity: 0; }
+.rank-6 .mil-title, .rank-7 .mil-title {
+  background:
+    radial-gradient(circle at 20% 30%, #4b5320 0 18%, transparent 19%),
+    radial-gradient(circle at 70% 60%, #7a6a45 0 16%, transparent 17%),
+    radial-gradient(circle at 45% 80%, #2f3318 0 14%, transparent 15%),
+    radial-gradient(circle at 88% 18%, #2f3318 0 12%, transparent 13%),
+    #9a9a62;
+  background-size: 110px 56px;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: none; filter: drop-shadow(0 5px 0 #1b1f10) drop-shadow(0 0 22px rgba(0,0,0,.6));
 }
-@keyframes rainbow { to { background-position: 200% 0; } }
+.rank-7 .mil-sub, .rank-9 .mil-sub {
+  background: repeating-linear-gradient(-45deg, #f2c14e 0 12px, #141414 12px 24px);
+  color: #fff; text-shadow: 0 0 4px #000, 0 2px 0 #000;
+}
+.rank-8 .mil-title {
+  background: linear-gradient(180deg, #fff3b0, #ffb347 45%, #e8430c);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: none; filter: drop-shadow(0 5px 0 #1b1f10) drop-shadow(0 0 24px #ff6a1c99);
+}
+.rank-8 .mil-sub { background: #6b1d12; }
+.rank-9 .mil-title {
+  color: #d6ff3a; font-size: clamp(32px, 7vw, 74px);
+  text-shadow: 0 5px 0 #1b1f10, 0 0 22px #9dff00, 0 0 48px #9dff0088;
+  animation: flicker .18s steps(2) 6;
+}
+@keyframes stamp {
+  0% { transform: scale(2.6) rotate(-8deg); opacity: 0; }
+  12% { transform: scale(.94) rotate(-3deg); opacity: 1; }
+  18% { transform: scale(1.03) rotate(-3deg); }
+  24% { transform: scale(1) rotate(-3deg); }
+  82% { transform: scale(1) rotate(-3deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-3deg) translateY(-12px); opacity: 0; }
+}
+@keyframes flicker { 50% { opacity: .55; } }
+
+/* lobby effect preview */
+.arsenal { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; }
+.arsenal .btn { flex-direction: column; gap: 2px; padding: 8px 10px; }
+.arsenal .btn { font-family: "Black Ops One", Impact, sans-serif; letter-spacing: 1px; font-weight: 400; background: #2c331c; border-color: #4b5320; }
+.arsenal .btn small { color: var(--muted); font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 0; }
 #fx-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; }
 .screen-flash { position: fixed; inset: 0; pointer-events: none; z-index: 49; }
 .fly-chip {

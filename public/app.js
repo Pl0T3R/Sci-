@@ -213,6 +213,8 @@
   async function showLobby() {
     currentRoom = null;
     state = prev = null;
+    $('#chat-list').innerHTML = '';
+    $('#log-list').innerHTML = '';
     setUrlRoom(null);
     show('lobby');
     try {
@@ -529,16 +531,15 @@
     enteredRoom(res.code);
   }
 
+  // The server sends this room's state and chat history before it acknowledges the join,
+  // so keep them; only drop state that belongs to a different room.
   function enteredRoom(code) {
-    if (currentRoom !== code) {
-      state = prev = null;
-      $('#chat-list').innerHTML = '';
-      $('#log-list').innerHTML = '';
-    }
+    if (state && state.code !== code) state = prev = null;
     currentRoom = code;
     setUrlRoom(code);
     $('#room-code').textContent = code;
     show('table');
+    renderTable(); // re-layout now that the table is visible
   }
 
   // ---------- socket ----------
@@ -924,32 +925,32 @@
     if (s.phase === 'showdown' && s.lastResult && celebratedHand !== s.handNumber) {
       celebratedHand = s.handNumber;
       if (!prev) return; // just joined: don't replay an old celebration
-      const boardRect = centerOf($('#board'));
-      const potRect = s.board.length ? boardRect : centerOf($('#pot'));
-      const winnerRects = [];
-      let best = null;
-      for (const w of s.lastResult.winners) {
-        const i = s.seats.findIndex((p) => p && p.username === w.username);
-        if (i === -1) continue;
-        const r = centerOf(seatUI[i].avatar);
-        winnerRects.push(r);
-        FX.flyChips(potRect, r, Math.min(10, 4 + Math.max(0, w.rank)));
-        const amt = el('div', 'win-amount', '+' + fmt(w.amount));
-        seatUI[i].node.append(amt);
-        setTimeout(() => amt.remove(), 1900);
-        if (!best || (w.rank ?? -1) > (best.rank ?? -1)) best = w;
-      }
-      if (best) {
-        FX.celebrate({
-          rank: best.rank ?? -1,
-          handName: best.hand,
-          winnerRects,
-          boardRect,
-          tableRect: centerOf($('#table-wrap')),
-          layer: $('#fx-layer'),
-          tableEl: $('#table-wrap'),
-        });
-      }
+      const best = s.lastResult.winners.reduce((b, w) => ((w.rank ?? -1) > (b.rank ?? -1) ? w : b));
+      const rank = best.rank ?? -1;
+      // Straight or better calls in an airstrike; the chips fly out of the impact.
+      const impactMs = FX.celebrate({
+        rank,
+        boardRect: centerOf($('#board')),
+        tableRect: centerOf($('#table-wrap')),
+        layer: $('#fx-layer'),
+        tableEl: $('#table-wrap'),
+      });
+      const big = FX.hasEffect(rank);
+      const hand = s.handNumber;
+      setTimeout(() => {
+        if (!state || state.handNumber !== hand) return;
+        const origin = centerOf($('#board'));
+        for (const w of s.lastResult.winners) {
+          const i = state.seats.findIndex((p) => p && p.username === w.username);
+          if (i === -1) continue;
+          FX.flyChips(origin, centerOf(seatUI[i].avatar), big ? 10 : 6);
+          if (big) {
+            const amt = el('div', 'win-amount', '+' + fmt(w.amount));
+            seatUI[i].node.append(amt);
+            setTimeout(() => amt.remove(), 1900);
+          }
+        }
+      }, impactMs);
     }
   }
 
@@ -1123,6 +1124,22 @@
     }
     $('#buyin-dialog').close();
   });
+
+  // ---------- win effect preview (lobby) ----------
+  const PREVIEWS = [[4, 'Straight', 'Sniper'], [5, 'Flush', 'Strafing run'], [6, 'Full House', 'Missile strike'],
+    [7, 'Four of a Kind', 'Carpet bombing'], [8, 'Straight Flush', 'Barrage'], [9, 'Royal Flush', 'Nuke']];
+  for (const [rank, name, what] of PREVIEWS) {
+    const b = el('button', 'btn');
+    b.append(el('span', null, name), el('small', null, what));
+    b.addEventListener('click', () => {
+      const w = innerWidth;
+      const h = innerHeight;
+      const area = { left: w * 0.08, right: w * 0.92, top: h * 0.2, bottom: h * 0.8, width: w * 0.84, height: h * 0.6 };
+      const c = { left: w / 2 - 40, top: h * 0.55 - 20, width: 80, height: 40 };
+      FX.celebrate({ rank, boardRect: c, tableRect: area, layer: $('#fx-global'), tableEl: $('.lobby-grid') });
+    });
+    $('#arsenal').append(b);
+  }
 
   // ---------- boot ----------
   async function boot() {
