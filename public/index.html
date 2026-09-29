@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>Poker Night</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- AUTH -->
+  <section id="auth-screen" class="screen hidden">
+    <div class="panel auth-panel">
+      <h1 class="logo">♠ Poker Night</h1>
+      <p class="muted">Texas Hold'em with your friends</p>
+      <div class="tabs">
+        <button class="tab active" data-tab="login">Log in</button>
+        <button class="tab" data-tab="register">Register</button>
+      </div>
+      <form id="auth-form" autocomplete="on">
+        <input id="auth-username" name="username" placeholder="Username" autocomplete="username" required>
+        <input id="auth-password" name="password" type="password" placeholder="Password" autocomplete="current-password" required>
+        <button type="submit" class="btn primary" id="auth-submit">Log in</button>
+        <p id="auth-error" class="error"></p>
+      </form>
+      <p class="muted small" id="auth-hint">New players start with 1,000 chips.</p>
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="lobby-screen" class="screen hidden">
+    <header class="topbar">
+      <span class="logo small-logo">♠ Poker Night</span>
+      <span class="spacer"></span>
+      <span class="chip-badge" title="Chips in your account"><span class="chip-icon"></span><b class="wallet-amount">0</b></span>
+      <span id="lobby-user" class="muted"></span>
+      <button class="btn ghost" id="logout-btn">Log out</button>
+    </header>
+    <div class="lobby-grid">
+      <div class="panel">
+        <h2>Join a room</h2>
+        <p class="muted">Got a code from a friend? Enter it here.</p>
+        <form id="join-form" class="row">
+          <input id="join-code" placeholder="ROOM CODE" maxlength="8" autocomplete="off" class="code-input">
+          <button class="btn primary" type="submit">Join</button>
+        </form>
+        <p id="join-error" class="error"></p>
+      </div>
+      <div class="panel">
+        <h2>Create a room</h2>
+        <p class="muted">Start a new table and share the code.</p>
+        <form id="create-form">
+          <label>Blinds
+            <select id="create-blinds">
+              <option value="2">1 / 2</option>
+              <option value="10">5 / 10</option>
+              <option value="20" selected>10 / 20</option>
+              <option value="50">25 / 50</option>
+              <option value="100">50 / 100</option>
+              <option value="500">250 / 500</option>
+            </select>
+          </label>
+          <label>Custom code <span class="muted">(optional)</span>
+            <input id="create-code" placeholder="e.g. FRIDAY" maxlength="8" autocomplete="off" class="code-input">
+          </label>
+          <button class="btn primary" type="submit">Create room</button>
+        </form>
+        <p id="create-error" class="error"></p>
+      </div>
+      <div class="panel">
+        <h2>Your chips</h2>
+        <p class="big-number"><span class="chip-icon"></span><b class="wallet-amount">0</b></p>
+        <p class="muted small">Chips are saved to your account. Whatever you have when you leave a table goes back here.</p>
+        <button class="btn gold hidden" id="refill-btn">Claim 500 free chips</button>
+        <p id="refill-error" class="error"></p>
+      </div>
+      <div class="panel">
+        <h2>Leaderboard</h2>
+        <ol id="leaderboard" class="leaderboard"></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- TABLE -->
+  <section id="table-screen" class="screen hidden">
+    <header class="topbar">
+      <button class="btn ghost" id="leave-btn">← Leave</button>
+      <span class="room-info">Room <b id="room-code" class="code"></b>
+        <button class="btn tiny" id="copy-link-btn">Copy invite link</button>
+      </span>
+      <span class="muted" id="blinds-info"></span>
+      <span class="spacer"></span>
+      <span class="chip-badge" title="Chips in your account (not on the table)"><span class="chip-icon"></span><b class="wallet-amount">0</b></span>
+    </header>
+    <div class="table-layout">
+      <div class="table-area">
+        <div class="table-wrap">
+          <div class="felt">
+            <div class="felt-inner">
+              <div id="pot" class="pot"></div>
+              <div id="board" class="board"></div>
+              <div id="status" class="status"></div>
+            </div>
+          </div>
+          <div id="seats"></div>
+        </div>
+        <div id="action-bar" class="action-bar"></div>
+      </div>
+      <aside class="side">
+        <div class="side-tabs">
+          <button class="tab active" data-side="chat">Chat</button>
+          <button class="tab" data-side="log">Hand log</button>
+        </div>
+        <div id="chat-list" class="feed"></div>
+        <div id="log-list" class="feed hidden"></div>
+        <form id="chat-form" class="row">
+          <input id="chat-input" placeholder="Say something…" maxlength="200" autocomplete="off">
+          <button class="btn" type="submit">Send</button>
+        </form>
+        <div id="spectators" class="muted small"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Buy-in dialog -->
+  <dialog id="buyin-dialog">
+    <form method="dialog" id="buyin-form">
+      <h3 id="buyin-title">Buy in</h3>
+      <p class="muted small" id="buyin-hint"></p>
+      <input type="range" id="buyin-range">
+      <input type="number" id="buyin-amount" class="amount-input">
+      <p id="buyin-error" class="error"></p>
+      <div class="row end">
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" id="buyin-confirm" value="ok">Sit down</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "name": "poker-night",
+  "version": "1.0.0",
+  "description": "Multiplayer Texas Hold'em for friends: rooms by code, accounts, persistent chips",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pl0T3R/Sci-.git"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Pl0T3R/Sci-/issues"
+  },
+  "homepage": "https://github.com/Pl0T3R/Sci-#readme",
+  "dependencies": {
+    "express": "^4.22.3",
+    "socket.io": "^4.8.4"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.4"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
