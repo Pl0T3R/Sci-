@@ -21,42 +21,65 @@ A multiplayer Texas Hold'em (No-Limit) game you can play in the browser with fri
 - **Avatars:** pick an emoji and a color, or upload a photo (cropped to a 128px square).
 - **Emotes:** 😂 😭 😡 😎 🤔 👏 🔥 💀 … pop up over your seat for everyone at the table.
 - **Military win effects for big hands.** High card, pair, two pair and three of a kind only send the chips flying to the winner. From a straight up, each hand calls in a bigger strike, and the chips fly out of the impact:
-  - straight: a sniper scope locks onto the pot and fires;
-  - flush: a fighter jet makes a strafing run with tracer rounds;
-  - full house: a Nike missile drops onto the table, with a fireball, a shockwave and a scorch mark;
-  - four of a kind: a B-2 bomber carpet-bombs across the felt;
-  - straight flush: a missile barrage;
-  - royal flush: an air-raid siren, then a nuke with a mushroom cloud.
+  - straight: sniper scope view with sway and a heartbeat, then the shot;
+  - flush: two fighter jets make a strafing run with tracers and a sonic boom;
+  - full house: a drone camera locks onto the pot (night vision, radar lock), then a **Nike missile** hits: blast light, lens flare, a cracked crater, embers, and a shockwave that knocks the cards, chips and players back;
+  - four of a kind: red alert, then a B-2 carpet-bombs across the felt;
+  - straight flush: five targets lock on, then a missile barrage;
+  - royal flush: DEFCON 1, a siren, then a nuke with a whiteout, mushroom cloud, fallout and falling ash.
 
-  Each effect lasts about 1–3 seconds and comes with a stamped stencil banner and synthesized sound. You can preview them all from the lobby.
+  Most effects take 1–2.5 seconds; the nuke takes about 3.5. Each one ends with a stamped stencil banner naming the winner and their winnings, and synthesized sound with echo. You can preview them all from the lobby.
 - **The table:** leather rail with a gold inlay, textured felt in 5 colors (🎨 button), avatar seats with a countdown ring, chip stacks, dealt and flipped cards, and synthesized sound effects (🔊 to mute).
 - **Rooms by code:** one player creates a room and gets a code (or picks their own, e.g. `FRIDAY`). Friends enter the code, or open the invite link (`?room=FRIDAY`), and they're all at the same table.
 - Up to 9 players per table, with side pots, all-in run-outs, a 30-second turn timer, chat, a hand log and a leaderboard.
 - If you refresh or briefly lose connection, you keep your seat. Players who are gone for 2 minutes are stood up automatically and their chips go back to their account.
 
-## Run it
+## Put it online (free): Render + Neon
+
+This takes about 10 minutes and needs no credit card for the database. Render may ask for one to verify your account.
+
+You need two free accounts:
+- [Neon](https://neon.tech) hosts the database, so accounts and chips survive restarts.
+- [Render](https://render.com) runs the game server.
+
+**1. Create the database (Neon)**
+1. Sign up at neon.tech (you can log in with GitHub).
+2. Create a project. Pick the region **AWS Europe Central (Frankfurt)**.
+3. On the project dashboard, click **Connect** and copy the connection string. It looks like `postgresql://user:password@ep-xxxx.eu-central-1.aws.neon.tech/neondb?sslmode=require`. Keep it secret: it's the key to your database.
+
+**2. Deploy the server (Render)**
+1. Sign up at render.com with your GitHub account.
+2. Click **New → Blueprint** and select this repository (`Sci-`). If it isn't listed, click the link to give Render access to it.
+3. Render reads `render.yaml` and shows a service called `poker-night`. When it asks for `DATABASE_URL`, paste the Neon connection string.
+4. Click **Apply**. The first build takes 2–3 minutes.
+5. Open the service. Its address is at the top, e.g. `https://poker-night-xxxx.onrender.com`. That's the link for your friends.
+
+**3. Play**
+Register, create a room, and send your friends the invite link (the **Copy invite link** button on the table).
+
+Good to know:
+- **Sleeping server:** on Render's free plan the server goes to sleep after 15 minutes with nobody on it. The first visit after that takes up to a minute to load; after that it's fast.
+- **Chips are safe:** they're stored in Neon, not on the server. Stacks on a table when the server sleeps or restarts go back to their owners.
+- **Updates:** every push to this branch redeploys automatically. If Render doesn't pick up a push, use **Manual Deploy** in its dashboard.
+- **Other hosts:** any host that runs Node.js with WebSockets works (Railway, Fly.io, a VPS). Set `DATABASE_URL` to a Postgres database, or set `DATA_DIR` to a persistent disk.
+
+## Run it on your own computer
 
 ```bash
 npm install
 npm start          # http://localhost:3000
 ```
 
-To play with friends on the **same Wi-Fi**, have them open `http://<your-computer's-IP>:3000`.
-
-To play with friends **anywhere**, the server has to be reachable from the internet. Two options:
-
-1. **Host it** on any service that runs Node.js with WebSockets (Render, Railway, Fly.io, a VPS, …).
-   - Start command: `npm start`
-   - The platform sets `PORT` automatically.
-   - Set `DATA_DIR` to a **persistent disk/volume**. Accounts and chips are stored in `DATA_DIR/db.json`. Without a persistent disk, many hosts wipe files on each redeploy.
-2. **Tunnel** from your own computer. For example, run `npx localtunnel --port 3000` or `cloudflared tunnel --url http://localhost:3000`, then share the URL it gives you.
+Friends on the **same Wi-Fi** can open `http://<your-computer's-IP>:3000`. For a quick test with friends elsewhere, `npx localtunnel --port 3000` gives you a temporary public link while your computer is on.
 
 ## Configuration
 
-| Env var    | Default  | Meaning                            |
-|------------|----------|------------------------------------|
-| `PORT`     | `3000`   | HTTP port                          |
-| `DATA_DIR` | `./data` | Where `db.json` (accounts, chips, miners, avatars) is kept |
+| Env var        | Default  | Meaning |
+|----------------|----------|---------|
+| `PORT`         | `3000`   | HTTP port (hosts set this automatically) |
+| `DATABASE_URL` | –        | Postgres connection string. When set, everything is stored in the database. |
+| `DATA_DIR`     | `./data` | Where `db.json` is kept when `DATABASE_URL` isn't set |
+| `TRUST_PROXY`  | –        | Set when running behind a reverse proxy, so login rate limits see real client IPs. This is automatic on Render, Railway and Fly. |
 
 ## Tests
 
@@ -64,17 +87,18 @@ To play with friends **anywhere**, the server has to be reachable from the inter
 npm test
 ```
 
-The tests cover hand ranking, betting rules (blinds, min-raise, big blind option, side pots, timeouts), and account features (password reset, daily reward, miner income and vault cap, avatars). There is also an end-to-end run. The end-to-end test starts the real server, registers two players, plays a hand in a shared room, and checks that chips survive a server restart.
+The tests cover hand ranking, betting rules (blinds, min-raise, big blind option, side pots, timeouts), and account features (password reset, daily reward, miner income and vault cap, avatars). There is also an end-to-end run. The end-to-end test starts the real server, registers two players, plays a hand in a shared room, and checks that chips survive a server restart. To run the end-to-end test against Postgres, run `DATABASE_URL=postgres://… node --test test/server.test.js`.
 
 ## Project layout
 
 ```
 server.js          HTTP API (register/login/refill) + Socket.IO rooms
-src/db.js          JSON-file storage: users, sessions, chips, rewards, miners, avatars
+src/db.js          Storage (JSON file or Postgres): users, sessions, chips, rewards, miners, avatars
 src/table.js       Poker table engine (betting rounds, pots, showdown, timers)
 src/hand.js        Deck + hand evaluator
 public/            Browser client (index.html, app.js, effects.js, style.css)
 public/fonts/      Black Ops One stencil font (SIL Open Font License)
+render.yaml        One-click Render deployment (Blueprint)
 ```
 
 The chips are play money only. They have no real-world value.

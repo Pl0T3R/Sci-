@@ -12,9 +12,13 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const EMOTES = ['😂', '😭', '😡', '😎', '🤔', '👏', '🔥', '💀', '😱', '🤑', '👍', '🙏', '🤡', '😴', '🥳', '🤯'];
 const EMOTE_COOLDOWN_MS = 1200;
 
-db.load();
-
 const app = express();
+// Behind a hosting proxy (Render, Railway, Fly…) the real client IP is in X-Forwarded-For;
+// without this every player would share one login rate-limit bucket.
+if (process.env.TRUST_PROXY || process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.FLY_APP_NAME) {
+  app.set('trust proxy', 1);
+}
+app.get('/healthz', (req, res) => res.send('ok'));
 app.use(express.json({ limit: '100kb' })); // room for a small avatar photo
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -373,7 +377,10 @@ io.on('connection', (socket) => {
   if (seatedIn) socket.emit('seated-in', seatedIn.code);
 });
 
-function shutdown() {
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   // put every stack back into its owner's wallet
   for (const room of rooms.values()) {
     for (const s of room.table.seats) {
@@ -386,9 +393,20 @@ function shutdown() {
     }
   }
   db.saveNow();
+  try {
+    await db.close();
+  } catch (e) {
+    console.error('Final save failed:', e.message);
+  }
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-server.listen(PORT, () => console.log(`Poker server running on http://localhost:${PORT}`));
+db.load().then(
+  () => server.listen(PORT, () => console.log(`Poker server running on http://localhost:${PORT} (storage: ${process.env.DATABASE_URL ? 'Postgres' : 'file'})`)),
+  (e) => {
+    console.error('Could not load the database:', e.message);
+    process.exit(1);
+  },
+);

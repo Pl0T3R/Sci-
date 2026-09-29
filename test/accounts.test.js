@@ -7,7 +7,7 @@ const path = require('path');
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'poker-db-'));
 process.env.DATA_DIR = DATA_DIR;
 const db = require('../src/db');
-db.load();
+test.before(() => db.load());
 test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 
 const HOUR = 3600 * 1000;
@@ -105,12 +105,12 @@ test('avatars: emoji choices and image validation', () => {
   assert.equal(db.avatarImage('pic'), null);
 });
 
-test('old accounts get new fields filled in on load', () => {
+test('old accounts get new fields filled in on load', async () => {
   const file = path.join(DATA_DIR, 'db.json');
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   raw.users.legacy = { username: 'Legacy', salt: 'x', hash: 'y', chips: 42, inPlay: 8 };
   fs.writeFileSync(file, JSON.stringify(raw));
-  db.load();
+  await db.load();
   const u = db.getUser('legacy');
   assert.equal(u.chips, 50); // in-play chips refunded
   assert.equal(u.recoveryHash, null);

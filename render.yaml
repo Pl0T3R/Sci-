@@ -1,0 +1,18 @@
+# Render Blueprint (https://render.com/docs/blueprint-spec).
+# In Render: New → Blueprint → pick this repo, then paste your Neon connection string
+# as DATABASE_URL when asked. Accounts and chips are stored there, so they survive
+# restarts even on the free plan (whose disk is wiped every time the server restarts).
+services:
+  - type: web
+    name: poker-night
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false

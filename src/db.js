@@ -1,11 +1,14 @@
-// Tiny persistent store backed by a JSON file. Good enough for a group of friends;
-// writes are atomic (write temp file + rename) so a crash can't corrupt the data.
+// Tiny persistent store: the whole state is one JSON document. Good enough for a group
+// of friends. It lives in a local file by default (written atomically: temp file +
+// rename), or in Postgres when DATABASE_URL is set — use that on hosts whose disk is
+// wiped on every restart/deploy (e.g. Render's free plan).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const DATABASE_URL = process.env.DATABASE_URL;
 
 const STARTING_CHIPS = 1000;
 const REFILL_AMOUNT = 500;
@@ -55,14 +58,25 @@ function normalizeUser(u) {
   return u;
 }
 
-function load() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (fs.existsSync(DB_FILE)) {
-    data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-    data.users ||= {};
-    data.sessions ||= {};
-    data.avatars ||= {};
+let pool = null; // Postgres connection pool when DATABASE_URL is set
+let writing = null; // in-flight Postgres write
+let dirty = false; // state changed since the last Postgres write started
+
+async function load() {
+  if (DATABASE_URL) {
+    const { Pool } = require('pg');
+    pool = new Pool({ connectionString: DATABASE_URL, max: 2 });
+    await pool.query(`CREATE TABLE IF NOT EXISTS poker_store (
+      id int PRIMARY KEY, data jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`);
+    const { rows } = await pool.query('SELECT data FROM poker_store WHERE id = 1');
+    if (rows[0]) data = rows[0].data;
+  } else {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (fs.existsSync(DB_FILE)) data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   }
+  data.users ||= {};
+  data.sessions ||= {};
+  data.avatars ||= {};
   for (const u of Object.values(data.users)) {
     normalizeUser(u);
     // Chips that were sitting on a table when the server stopped go back to the wallet.
@@ -76,14 +90,50 @@ function load() {
     if (s.expires < now || !data.users[s.username.toLowerCase()]) delete data.sessions[token];
   }
   saveNow();
+  await flushed();
 }
 
 function saveNow() {
   clearTimeout(saveTimer);
   saveTimer = null;
-  const tmp = DB_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-  fs.renameSync(tmp, DB_FILE);
+  if (!pool) {
+    const tmp = DB_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, DB_FILE);
+    return;
+  }
+  // Postgres writes are async: one at a time, and always of the latest state.
+  dirty = true;
+  if (!writing) writing = writeLoop();
+}
+
+async function writeLoop() {
+  while (dirty) {
+    dirty = false;
+    try {
+      await pool.query(
+        `INSERT INTO poker_store (id, data, updated_at) VALUES (1, $1, now())
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+        [JSON.stringify(data)],
+      );
+    } catch (e) {
+      console.error('Saving to the database failed, retrying:', e.message);
+      dirty = true;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  writing = null;
+}
+
+// Resolves once everything saved so far has reached storage.
+async function flushed() {
+  if (saveTimer) saveNow();
+  while (writing) await writing;
+}
+
+async function close() {
+  await flushed();
+  if (pool) await pool.end();
 }
 
 function save() {
@@ -372,7 +422,7 @@ function leaderboard(limit = 10) {
 }
 
 module.exports = {
-  load, saveNow, register, login, logout, userFromToken, getUser, publicUser,
+  load, saveNow, flushed, close, register, login, logout, userFromToken, getUser, publicUser,
   resetPassword, changePassword, regenerateRecovery,
   refill, claimDaily, buyIn, setInPlay, cashOut, leaderboard,
   minerInfo, buyMiner, collectMiners, settleMiners,
