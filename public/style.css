@@ -584,3 +584,14 @@ dialog input[type=range] { padding: 0; accent-color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* ---------- sandbox (local test mode) ---------- */
+.sandbox-badge {
+  position: fixed; right: 12px; bottom: 12px; z-index: 90; pointer-events: none;
+  background: #3b2f06; color: var(--gold); border: 1px solid #8a6d1a; border-radius: 999px;
+  padding: 4px 12px; font-weight: 800; font-size: 12px; letter-spacing: 1px; box-shadow: 0 4px 14px #0008;
+}
+.sandbox-logins { justify-content: center; flex-wrap: wrap; margin-top: 4px; }
+.sandbox-tools { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sandbox-tools select { width: auto; padding: 4px 8px; font-size: 12px; border-color: #8a6d1a; }
+.sandbox-lobby { flex-wrap: wrap; margin: 10px 0 4px; }

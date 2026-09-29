@@ -72,6 +72,24 @@ npm start          # http://localhost:3000
 
 Friends on the **same Wi-Fi** can open `http://<your-computer's-IP>:3000`. For a quick test with friends elsewhere, `npx localtunnel --port 3000` gives you a temporary public link while your computer is on.
 
+## Local sandbox (test mode)
+
+A private copy of the game on your own computer, for trying things out alone. You need [Node.js](https://nodejs.org) (the LTS version).
+
+- **Windows:** double-click `start-sandbox.bat`.
+- **Mac/Linux:** run `./start-sandbox.sh`.
+- **Anywhere:** `npm install`, then `npm run sandbox`.
+
+The browser opens at `http://localhost:3000`. In the sandbox:
+
+- **Test accounts:** `test1`, `test2`, `test3` (password `test`), each with 100,000 chips, plus one-click login buttons.
+- **Several players on one computer:** every browser tab can be logged in to a different account.
+- **🤖 Add bot:** bots sit at the table and play by themselves, so you can play alone. **🧹 Remove bots** sends them away.
+- **🎯 Rig my next hand:** pick Straight … Royal Flush, and your next hand deals it to you. Play it to the showdown to see the win effect in a real game.
+- **⏩ Skip 12 hours:** miners fill up and the daily reward comes back. **💰 +10,000 chips** tops up your account.
+
+Sandbox data is kept in `sandbox-data/`, separate from the real game. `DATABASE_URL` is always ignored, so the sandbox can never touch the online database. The sandbox tools don't exist on a normally started server. To start over, run `npm run sandbox:reset`.
+
 ## Configuration
 
 | Env var        | Default  | Meaning |
@@ -87,7 +105,7 @@ Friends on the **same Wi-Fi** can open `http://<your-computer's-IP>:3000`. For a
 npm test
 ```
 
-The tests cover hand ranking, betting rules (blinds, min-raise, big blind option, side pots, timeouts), and account features (password reset, daily reward, miner income and vault cap, avatars). There is also an end-to-end run. The end-to-end test starts the real server, registers two players, plays a hand in a shared room, and checks that chips survive a server restart. To run the end-to-end test against Postgres, run `DATABASE_URL=postgres://… node --test test/server.test.js`.
+The tests cover hand ranking, betting rules (blinds, min-raise, big blind option, side pots, timeouts), the sandbox (rigged hands, bots, isolation from the real database), and account features (password reset, daily reward, miner income and vault cap, avatars). There is also an end-to-end run. The end-to-end test starts the real server, registers two players, plays a hand in a shared room, and checks that chips survive a server restart. To run the end-to-end test against Postgres, run `DATABASE_URL=postgres://… node --test test/server.test.js`.
 
 ## Project layout
 
@@ -98,6 +116,8 @@ src/table.js       Poker table engine (betting rounds, pots, showdown, timers)
 src/hand.js        Deck + hand evaluator
 public/            Browser client (index.html, app.js, effects.js, style.css)
 public/fonts/      Black Ops One stencil font (SIL Open Font License)
+src/sandbox.js     Sandbox mode: test accounts and bots
+start-sandbox.*    Double-click launchers for the local sandbox
 render.yaml        One-click Render deployment (Blueprint)
 ```
 

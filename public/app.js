@@ -16,9 +16,11 @@
     set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
   };
 
-  let token = store.get('pokerToken');
   let me = null; // public user from the server
   let config = { avatarEmojis: [], avatarColors: [], emotes: [] };
+  // In the sandbox each tab keeps its own login, so one person can play several test accounts.
+  const tokenStore = () => (config.sandbox ? sessionStorage : localStorage);
+  let token = null; // read in boot(), once we know whether this is the sandbox
   let socket = null;
   let currentRoom = null;
   let state = null;
@@ -96,7 +98,10 @@
 
   function setToken(t) {
     token = t;
-    store.set('pokerToken', t);
+    try {
+      if (t == null) tokenStore().removeItem('pokerToken');
+      else tokenStore().setItem('pokerToken', t);
+    } catch {}
     if (socket) socket.auth = { token: t };
   }
 
@@ -1147,11 +1152,83 @@
     $('#arsenal').append(b);
   }
 
+  // ---------- sandbox (local test mode) ----------
+  function setupSandbox() {
+    document.body.classList.add('sandbox');
+    document.body.append(el('div', 'sandbox-badge', '🧪 SANDBOX'));
+
+    // one-click logins for the test accounts
+    const hint = $('#auth-hint');
+    hint.textContent = `Sandbox: test accounts ${config.testAccounts.join(', ')} (password: ${config.testPassword}). Every tab can use a different one.`;
+    const quick = el('div', 'row sandbox-logins');
+    for (const name of config.testAccounts) {
+      const b = el('button', 'btn tiny', 'Log in as ' + name);
+      b.addEventListener('click', async () => {
+        try {
+          const data = await api('/api/login', { username: name, password: config.testPassword });
+          setToken(data.token);
+          onLoggedIn(data.user);
+        } catch (err) {
+          $('#auth-error').textContent = err.message;
+        }
+      });
+      quick.append(b);
+    }
+    hint.after(quick);
+
+    // table tools: bots and rigged hands
+    const tools = el('span', 'sandbox-tools');
+    const addBot = el('button', 'btn tiny', '🤖 Add bot');
+    addBot.addEventListener('click', async () => {
+      const res = await emit('sandbox-add-bot');
+      toast(res.error || `${res.name} joined the table`);
+    });
+    const removeBots = el('button', 'btn tiny', '🧹 Remove bots');
+    removeBots.addEventListener('click', () => emit('sandbox-remove-bots'));
+    const rig = el('select', 'sandbox-rig');
+    rig.append(new Option('🎯 Rig my next hand…', ''));
+    for (const r of config.rigs) rig.append(new Option(r.name, r.rank));
+    rig.addEventListener('change', async () => {
+      if (!rig.value) return;
+      const res = await emit('sandbox-rig', { rank: Number(rig.value) });
+      toast(res.error || `Your next hand: ${res.name}. Play it to the showdown!`);
+      rig.value = '';
+    });
+    tools.append(addBot, removeBots, rig);
+    $('#blinds-info').after(tools);
+
+    // lobby tools: skip time, free chips
+    const lobby = el('div', 'row sandbox-lobby');
+    const warp = el('button', 'btn tiny', '⏩ Skip 12 hours');
+    warp.addEventListener('click', async () => {
+      const { user } = await api('/api/sandbox/time-warp', {});
+      setWallet(user);
+      loadMiners();
+      toast('12 hours later… miners have been busy and the daily reward is back.');
+    });
+    const chips = el('button', 'btn tiny', '💰 +10,000 chips');
+    chips.addEventListener('click', async () => {
+      const { user } = await api('/api/sandbox/chips', {});
+      setWallet(user);
+      loadLeaderboard();
+    });
+    lobby.append(el('span', 'muted small', '🧪 Sandbox:'), warp, chips);
+    $('#reward-error').before(lobby);
+  }
+
   // ---------- boot ----------
   async function boot() {
     try {
       config = await api('/api/config');
     } catch {}
+    token = (() => {
+      try {
+        return tokenStore().getItem('pokerToken');
+      } catch {
+        return null;
+      }
+    })();
+    if (config.sandbox) setupSandbox();
     buildEmotePicker();
     const code = roomFromUrl();
     if (code) $('#join-code').value = code;

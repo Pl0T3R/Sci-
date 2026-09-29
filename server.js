@@ -3,8 +3,18 @@ const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
 const { Server } = require('socket.io');
+
+// Sandbox mode (npm run sandbox): a local test setup with its own data folder. It never
+// touches a real database, so this has to happen before the storage layer is loaded.
+const SANDBOX = process.argv.includes('--sandbox') || process.env.SANDBOX === '1';
+if (SANDBOX) {
+  delete process.env.DATABASE_URL;
+  process.env.DATA_DIR = process.env.SANDBOX_DATA_DIR || path.join(__dirname, 'sandbox-data');
+}
+
 const db = require('./src/db');
-const { Table } = require('./src/table');
+const { Table, RIGS } = require('./src/table');
+const sandbox = SANDBOX ? require('./src/sandbox') : null;
 
 const PORT = process.env.PORT || 3000;
 const DISCONNECT_GRACE_MS = 2 * 60 * 1000; // stand up players who are gone this long
@@ -121,7 +131,30 @@ app.get('/api/leaderboard', (req, res) => res.json({ leaders: db.leaderboard() }
 
 app.get('/api/config', (req, res) => res.json({
   avatarEmojis: db.AVATAR_EMOJIS, avatarColors: db.AVATAR_COLORS, emotes: EMOTES,
+  sandbox: SANDBOX,
+  ...(SANDBOX && {
+    testAccounts: sandbox.TEST_ACCOUNTS, testPassword: sandbox.TEST_PASSWORD,
+    rigs: Object.entries(RIGS).map(([rank, r]) => ({ rank: Number(rank), name: r.name })),
+  }),
 }));
+
+if (SANDBOX) {
+  // Jump 12 hours ahead for this player: miners fill up and the daily reward resets.
+  app.post('/api/sandbox/time-warp', handle((b, u) => {
+    db.settleMiners(u);
+    u.minerTick -= 12 * 3600 * 1000;
+    u.lastDaily = 0;
+    u.lastRefill = 0;
+    db.saveNow();
+    return { user: db.publicUser(u) };
+  }));
+  app.post('/api/sandbox/chips', handle((b, u) => {
+    u.chips += 10000;
+    db.saveNow();
+    sendWallet(u.username);
+    return { user: db.publicUser(u) };
+  }));
+}
 
 // ---------- rooms ----------
 const server = http.createServer(app);
@@ -146,7 +179,10 @@ function normalizeCode(code) {
 function createRoom(code, smallBlind, bigBlind) {
   const room = { code, members: new Map(), chat: [], log: [] };
   room.table = new Table(code, { smallBlind, bigBlind }, {
-    onChange: () => broadcast(room),
+    onChange: () => {
+      broadcast(room);
+      if (room.bots) room.bots.onChange();
+    },
     onLog: (msg) => {
       room.log.push(msg);
       if (room.log.length > 60) room.log.shift();
@@ -163,6 +199,7 @@ function createRoom(code, smallBlind, bigBlind) {
       sendWallet(username);
     },
   });
+  if (SANDBOX) room.bots = new sandbox.Bots(room, db, (name) => !seatedRoom(name));
   rooms.set(code, room);
   return room;
 }
@@ -190,10 +227,12 @@ function sendWallet(username) {
 }
 
 function maybeDeleteRoom(room) {
-  if (room.members.size === 0 && room.table.seats.every((s) => !s)) {
-    room.table.destroy();
-    rooms.delete(room.code);
-  }
+  if (room.members.size) return;
+  const onlyBots = (s) => !s || (room.bots && room.bots.isBot(s.username));
+  if (!room.table.seats.every(onlyBots)) return;
+  if (room.bots) room.bots.removeAll(); // nobody left to play with them
+  room.table.destroy();
+  rooms.delete(room.code);
 }
 
 // Which room a user is seated in (a user can only sit at one table at a time).
@@ -370,6 +409,30 @@ io.on('connection', (socket) => {
     io.to(room.code).emit('emote', { username, emoji });
   });
 
+  if (SANDBOX) {
+    socket.on('sandbox-add-bot', (_, cb) => {
+      try {
+        if (!room) throw new Error('Join a room first');
+        ok(cb, { name: room.bots.add() });
+      } catch (e) {
+        fail(cb, e);
+      }
+    });
+    socket.on('sandbox-remove-bots', (_, cb) => {
+      if (room) room.bots.removeAll();
+      ok(cb);
+    });
+    socket.on('sandbox-rig', (opts, cb) => {
+      try {
+        if (!room) throw new Error('Join a room first');
+        const rank = opts && opts.rank ? Number(opts.rank) : null;
+        ok(cb, { name: room.table.rigNextHand(username, rank) });
+      } catch (e) {
+        fail(cb, e);
+      }
+    });
+  }
+
   socket.on('disconnect', leave);
 
   // if they refreshed or reopened the site while still seated, send them back to their table
@@ -403,8 +466,29 @@ async function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
+function openBrowser(url) {
+  const { spawn } = require('child_process');
+  const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+    : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  try {
+    spawn(cmd, args, { stdio: 'ignore', detached: true }).on('error', () => {}).unref();
+  } catch {}
+}
+
 db.load().then(
-  () => server.listen(PORT, () => console.log(`Poker server running on http://localhost:${PORT} (storage: ${process.env.DATABASE_URL ? 'Postgres' : 'file'})`)),
+  () => {
+    if (SANDBOX) sandbox.seed(db);
+    server.listen(PORT, () => {
+      const url = `http://localhost:${PORT}`;
+      console.log(`Poker server running on ${url} (storage: ${process.env.DATABASE_URL ? 'Postgres' : 'file'})`);
+      if (SANDBOX) {
+        console.log(`\n  🧪 SANDBOX MODE: test data lives in ${process.env.DATA_DIR}`);
+        console.log(`     Test accounts: ${sandbox.TEST_ACCOUNTS.join(', ')} (password: ${sandbox.TEST_PASSWORD})`);
+        console.log('     Each browser tab can log in as a different account. Ctrl+C to stop.\n');
+      }
+      if (process.argv.includes('--open')) openBrowser(url);
+    });
+  },
   (e) => {
     console.error('Could not load the database:', e.message);
     process.exit(1);

@@ -8,6 +8,16 @@ const DISCONNECTED_TURN_MS = 8000;
 const NEXT_HAND_MS = 5000;
 const RUNOUT_STEP_MS = 1200;
 
+// Sandbox only: hands a player can ask to be dealt next, to try the win effects.
+const RIGS = {
+  4: { name: 'Straight', hole: ['9h', '8d'], board: ['7c', '6s', '5h', 'Kd', '2c'] },
+  5: { name: 'Flush', hole: ['Ah', 'Jh'], board: ['9h', '5h', '2h', 'Kc', '7d'] },
+  6: { name: 'Full House', hole: ['Kd', 'Ks'], board: ['Kh', '7c', '7s', '2d', '9h'] },
+  7: { name: 'Four of a Kind', hole: ['9s', '9h'], board: ['9d', '9c', '3s', 'Kh', '2d'] },
+  8: { name: 'Straight Flush', hole: ['8c', '7c'], board: ['6c', '5c', '4c', 'Kd', '2h'] },
+  9: { name: 'Royal Flush', hole: ['As', 'Ks'], board: ['Qs', 'Js', 'Ts', '2d', '3c'] },
+};
+
 class Table {
   constructor(code, { smallBlind, bigBlind }, hooks = {}) {
     this.code = code;
@@ -36,6 +46,9 @@ class Table {
     this.turnTimer = null;
     this.nextHandTimer = null;
     this.runoutTimer = null;
+    this.rig = null; // sandbox: { username, rank } for the next hand
+    this.riggedBoard = [];
+    this.riggedHand = 0; // hand number that was rigged
   }
 
   // ---------- helpers ----------
@@ -209,7 +222,37 @@ class Table {
         if (s && s.inHand) s.hole.push(this.deck.pop());
       }
     }
+    this.riggedBoard = [];
+    if (this.rig) this.applyRig();
     this.proceed(this.bbSeat + 1);
+  }
+
+  // Sandbox: give `username` a chosen hand next time cards are dealt (rank 4-9, or null to cancel).
+  rigNextHand(username, rank) {
+    if (rank == null) {
+      this.rig = null;
+      return null;
+    }
+    if (!RIGS[rank]) throw new Error('Unknown hand');
+    this.rig = { username, rank };
+    return RIGS[rank].name;
+  }
+
+  applyRig() {
+    const { username, rank } = this.rig;
+    this.rig = null;
+    const target = this.seats[this.seatOf(username)];
+    if (!target || !target.inHand) return; // they sat this hand out: rig is dropped
+    const { hole, board } = RIGS[rank];
+    const wanted = new Set([...hole, ...board]);
+    this.deck.unshift(...target.hole); // their random cards go back under the deck
+    this.deck = this.deck.filter((c) => !wanted.has(c));
+    for (const s of this.seats) {
+      if (s && s.inHand && s !== target) s.hole = s.hole.map((c) => (wanted.has(c) ? this.deck.pop() : c));
+    }
+    target.hole = hole.slice();
+    this.riggedBoard = board.slice();
+    this.riggedHand = this.handNumber;
   }
 
   putChips(i, amount) {
@@ -346,7 +389,7 @@ class Table {
     this.phase = next;
     this.deck.pop(); // burn
     const count = next === 'flop' ? 3 : 1;
-    for (let k = 0; k < count; k++) this.board.push(this.deck.pop());
+    for (let k = 0; k < count; k++) this.board.push(this.riggedBoard.length ? this.riggedBoard.shift() : this.deck.pop());
     this.log(`${next[0].toUpperCase() + next.slice(1)}: ${this.board.join(' ')}`);
 
     const canAct = this.activeSeats().filter((i) => !this.seats[i].allIn);
@@ -537,4 +580,4 @@ class Table {
   }
 }
 
-module.exports = { Table, MAX_SEATS };
+module.exports = { Table, MAX_SEATS, RIGS };
