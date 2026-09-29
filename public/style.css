@@ -287,6 +287,9 @@ label input, label select { margin-top: 4px; }
 .card.dim { opacity: .4; }
 
 /* ---------- seats ---------- */
+/* Fill the table so seat percentages resolve the same even when effects put a filter on it. */
+#seats { position: absolute; inset: 0; pointer-events: none; }
+#seats > * { pointer-events: auto; }
 .seat {
   position: absolute; transform: translate(-50%, -50%);
   width: 124px; display: flex; flex-direction: column; align-items: center; z-index: 2;
@@ -414,6 +417,10 @@ label input, label select { margin-top: 4px; }
   font-size: clamp(12px, 2vw, 19px); letter-spacing: 6px; color: #f1f0e4; white-space: nowrap;
   background: #3d4a22; border: 2px solid #1b1f10; padding: 4px 16px 3px; box-shadow: 0 4px 0 #1b1f10;
 }
+.mil-who {
+  font: 700 13px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--gold); background: #000a; border: 1px solid #f2c14e55; padding: 5px 12px; margin-top: 2px;
+}
 .rank-6 .mil-title, .rank-7 .mil-title {
   background:
     radial-gradient(circle at 20% 30%, #4b5320 0 18%, transparent 19%),
@@ -456,7 +463,17 @@ label input, label select { margin-top: 4px; }
 .arsenal .btn { font-family: "Black Ops One", Impact, sans-serif; letter-spacing: 1px; font-weight: 400; background: #2c331c; border-color: #4b5320; }
 .arsenal .btn small { color: var(--muted); font-family: system-ui, sans-serif; font-size: 11px; letter-spacing: 0; }
 #fx-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; }
-.screen-flash { position: fixed; inset: 0; pointer-events: none; z-index: 49; }
+.screen-flash { position: fixed; inset: 0; pointer-events: none; z-index: 58; }
+.fx-light { position: fixed; pointer-events: none; z-index: 45; mix-blend-mode: screen; opacity: 0; border-radius: 50%; }
+.lb { position: fixed; left: 0; right: 0; height: 8vh; background: #000; z-index: 56; pointer-events: none; box-shadow: 0 0 30px #000; transform: translateY(-100%); }
+.lb.bottom { transform: translateY(100%); }
+.lb.top { top: 0; }
+.lb.bottom { bottom: 0; }
+.fallout {
+  position: fixed; pointer-events: none; z-index: 44; opacity: 0; border-radius: 40%;
+  background: radial-gradient(ellipse at center, rgba(255, 150, 60, .28), rgba(70, 35, 10, .5));
+}
+.red-alert { position: fixed; inset: 0; pointer-events: none; z-index: 55; opacity: 0; box-shadow: inset 0 0 140px 40px rgba(255, 20, 20, .55); }
 .fly-chip {
   position: fixed; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; z-index: 48;
   border: 3px dashed #fffc; box-shadow: 0 2px 4px #0008; pointer-events: none;

@@ -934,6 +934,9 @@
         tableRect: centerOf($('#table-wrap')),
         layer: $('#fx-layer'),
         tableEl: $('#table-wrap'),
+        // things the shockwave shoves around
+        knockables: [...$$('#seats .seat:not(.empty)'), ...$$('#board .card'), $('#pot'), ...$$('#seats .bet:not(.hidden)'), dealerNode],
+        winner: { name: best.username, amount: best.amount },
       });
       const big = FX.hasEffect(rank);
       const hand = s.handNumber;
@@ -1136,7 +1139,10 @@
       const h = innerHeight;
       const area = { left: w * 0.08, right: w * 0.92, top: h * 0.2, bottom: h * 0.8, width: w * 0.84, height: h * 0.6 };
       const c = { left: w / 2 - 40, top: h * 0.55 - 20, width: 80, height: 40 };
-      FX.celebrate({ rank, boardRect: c, tableRect: area, layer: $('#fx-global'), tableEl: $('.lobby-grid') });
+      FX.celebrate({
+        rank, boardRect: c, tableRect: area, layer: $('#fx-global'), tableEl: $('.lobby-grid'),
+        knockables: $$('.lobby-grid .panel'), winner: { name: me ? me.username : 'You', amount: 1337 },
+      });
     });
     $('#arsenal').append(b);
   }
