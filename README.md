@@ -90,6 +90,17 @@ The browser opens at `http://localhost:3000`. In the sandbox:
 
 Sandbox data is kept in `sandbox-data/`, separate from the real game. `DATABASE_URL` is always ignored, so the sandbox can never touch the online database. The sandbox tools don't exist on a normally started server. To start over, run `npm run sandbox:reset`.
 
+## Offline edition (one HTML file)
+
+[`offline/poker-night.html`](offline/poker-night.html) is the whole game in a single file, playable without a server: open it in a browser or in any app that previews HTML (such as the Claude app).
+
+- **You against bots:** a table starts with 3 bots, and you can add or remove more.
+- **Your profile is just a name,** and your chips, miners and avatar are saved in the browser.
+- **Everything else works** the same as the full game, including the win effects and the sandbox tools (rigged hands, skip 12 hours, +10,000 chips).
+- **No multiplayer:** playing with friends needs the server. If the page runs somewhere that blocks storage, progress lasts until the page is closed.
+
+The file is generated from the same source code as the full game. After changing the game, run `npm run build:offline` (a test checks that the file is up to date).
+
 ## Configuration
 
 | Env var        | Default  | Meaning |
@@ -117,6 +128,7 @@ src/hand.js        Deck + hand evaluator
 public/            Browser client (index.html, app.js, effects.js, style.css)
 public/fonts/      Black Ops One stencil font (SIL Open Font License)
 src/sandbox.js     Sandbox mode: test accounts and bots
+offline/           Single-file offline edition (built by scripts/build-offline.js)
 start-sandbox.*    Double-click launchers for the local sandbox
 render.yaml        One-click Render deployment (Blueprint)
 ```

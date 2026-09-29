@@ -7,6 +7,7 @@
     "start": "node server.js",
     "sandbox": "node server.js --sandbox --open",
     "sandbox:reset": "node -e \"require('fs').rmSync('sandbox-data',{recursive:true,force:true});console.log('Sandbox data deleted')\"",
+    "build:offline": "node scripts/build-offline.js",
     "test": "node --test test/*.test.js"
   },
   "repository": {

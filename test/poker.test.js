@@ -139,6 +139,17 @@ test('standing up mid-hand folds and cashes out the remaining stack', () => {
   t.destroy();
 });
 
+test('a player who stands up mid-hand is shown as not seated', () => {
+  const { t } = makeTable([['a', 100], ['b', 100], ['c', 100]]);
+  t.startHand();
+  t.stand('a');
+  assert.ok(t.inProgress);
+  const view = t.stateFor('a');
+  assert.equal(view.you, null);
+  assert.ok(view.seats.every((s) => !s || s.username !== 'a'));
+  t.destroy();
+});
+
 test('timeout auto-folds and sits the player out', async () => {
   const { t } = makeTable([['a', 100], ['b', 100]]);
   t.startHand();

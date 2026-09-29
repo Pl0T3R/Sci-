@@ -19,7 +19,7 @@
   let me = null; // public user from the server
   let config = { avatarEmojis: [], avatarColors: [], emotes: [] };
   // In the sandbox each tab keeps its own login, so one person can play several test accounts.
-  const tokenStore = () => (config.sandbox ? sessionStorage : localStorage);
+  const tokenStore = () => (config.sandbox && !config.offline ? sessionStorage : localStorage);
   let token = null; // read in boot(), once we know whether this is the sandbox
   let socket = null;
   let currentRoom = null;
@@ -29,6 +29,9 @@
   let celebratedHand = -1;
 
   // ---------- helpers ----------
+  // Some HTML previews run pages in a sandbox where confirm() silently returns false.
+  const confirmAction = (msg) => (config.offline ? true : confirm(msg));
+
   function show(screen) {
     for (const s of ['auth', 'lobby', 'table']) $(`#${s}-screen`).classList.toggle('hidden', s !== screen);
   }
@@ -43,6 +46,8 @@
   }
 
   async function api(path, body) {
+    // offline edition: the "server" runs inside this page
+    if (window.LocalServer) return window.LocalServer.api(path, body, token);
     const res = await fetch(path, {
       method: body === undefined ? 'GET' : 'POST',
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
@@ -106,15 +111,19 @@
   }
 
   function roomFromUrl() {
+    if (config.offline) return null; // offline tables don't survive a reload
     const code = new URLSearchParams(location.search).get('room');
     return code ? code.toUpperCase() : null;
   }
 
   function setUrlRoom(code) {
-    const url = new URL(location.href);
-    if (code) url.searchParams.set('room', code);
-    else url.searchParams.delete('room');
-    history.replaceState(null, '', url);
+    if (config.offline) return;
+    try {
+      const url = new URL(location.href);
+      if (code) url.searchParams.set('room', code);
+      else url.searchParams.delete('room');
+      history.replaceState(null, '', url);
+    } catch {}
   }
 
   // ---------- auth ----------
@@ -260,7 +269,7 @@
     });
     if (res.error) return ($('#create-error').textContent = res.error);
     enteredRoom(res.code);
-    toast(`Room ${res.code} created — share the code with your friends!`);
+    toast(config.offline ? 'The bots are taking their seats. Tap an empty seat (+) to join!' : `Room ${res.code} created — share the code with your friends!`);
   });
 
   // ---------- rewards ----------
@@ -638,7 +647,7 @@
   // ---------- table chrome ----------
   $('#leave-btn').addEventListener('click', async () => {
     const seated = state && state.you;
-    if (seated && !confirm('Leave the table? Your chips go back to your account (if you are in a hand, you fold).')) return;
+    if (seated && !confirmAction('Leave the table? Your chips go back to your account (if you are in a hand, you fold).')) return;
     await emit('leave-room');
     showLobby();
   });
@@ -1076,7 +1085,7 @@
     }
     const stand = el('button', 'btn ghost', 'Stand up');
     stand.addEventListener('click', async () => {
-      if (inHand && !confirm('Stand up? You will fold this hand.')) return;
+      if (inHand && !confirmAction('Stand up? You will fold this hand.')) return;
       emit('stand');
     });
     bar.append(stand);
@@ -1120,7 +1129,10 @@
   $('#buyin-amount').addEventListener('input', () => ($('#buyin-range').value = $('#buyin-amount').value));
 
   $('#buyin-form').addEventListener('submit', async (e) => {
-    if (e.submitter && e.submitter.value === 'cancel') return;
+    if (e.submitter && e.submitter.value === 'cancel') {
+      $('#buyin-dialog').close();
+      return;
+    }
     e.preventDefault();
     const amount = Math.floor(Number($('#buyin-amount').value));
     const res = buyInMode === 'sit'
@@ -1159,6 +1171,7 @@
 
     // one-click logins for the test accounts
     const hint = $('#auth-hint');
+    if (config.testAccounts.length) {
     hint.textContent = `Sandbox: test accounts ${config.testAccounts.join(', ')} (password: ${config.testPassword}). Every tab can use a different one.`;
     const quick = el('div', 'row sandbox-logins');
     for (const name of config.testAccounts) {
@@ -1175,6 +1188,7 @@
       quick.append(b);
     }
     hint.after(quick);
+    }
 
     // table tools: bots and rigged hands
     const tools = el('span', 'sandbox-tools');
@@ -1216,6 +1230,57 @@
     $('#reward-error').before(lobby);
   }
 
+  // ---------- offline edition (single HTML file): you against bots ----------
+  // HTML previews may sandbox the page so that forms can't be submitted at all; submit
+  // them ourselves (on click and on Enter) so every form keeps working there.
+  function installFormFallback() {
+    const submit = (form, submitter) => {
+      if (!(submitter && submitter.formNoValidate) && !form.noValidate && !form.checkValidity()) {
+        form.reportValidity();
+        return;
+      }
+      const ev = typeof SubmitEvent === 'function'
+        ? new SubmitEvent('submit', { cancelable: true, submitter: submitter || null })
+        : new Event('submit', { cancelable: true });
+      form.dispatchEvent(ev);
+    };
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn || !btn.form || btn.type !== 'submit') return;
+      e.preventDefault();
+      submit(btn.form, btn);
+    }, true);
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      const input = e.target.closest && e.target.closest('input');
+      if (!input || !input.form || input.type === 'button') return;
+      e.preventDefault();
+      submit(input.form, input.form.querySelector('button[type=submit], button:not([type])'));
+    }, true);
+  }
+
+  function setupOffline() {
+    document.body.classList.add('offline');
+    installFormFallback();
+    // a profile is just a name, kept in this browser
+    authMode = 'register';
+    $('.auth-panel .tabs').classList.add('hidden');
+    $('#forgot-link').classList.add('hidden');
+    const pw = $('#auth-password');
+    pw.required = false;
+    pw.value = 'offline';
+    pw.classList.add('hidden');
+    $('#auth-username').placeholder = 'Your name (letters, numbers or _)';
+    $('#auth-submit').textContent = 'Start playing';
+    $('#auth-hint').textContent = config.persistent
+      ? 'Offline edition: you play against bots. Your chips are saved in this browser.'
+      : 'Offline edition: you play against bots. This browser blocks storage, so progress resets when you close the page.';
+    $('#logout-btn').textContent = 'Switch player';
+    $('#create-title').textContent = 'Start a table';
+    $('#create-btn').textContent = 'Start table (3 bots join)';
+    $('.sandbox-badge').textContent = '🤖 OFFLINE vs BOTS';
+  }
+
   // ---------- boot ----------
   async function boot() {
     try {
@@ -1229,6 +1294,7 @@
       }
     })();
     if (config.sandbox) setupSandbox();
+    if (config.offline) setupOffline();
     buildEmotePicker();
     const code = roomFromUrl();
     if (code) $('#join-code').value = code;

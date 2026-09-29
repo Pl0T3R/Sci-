@@ -595,3 +595,6 @@ dialog input[type=range] { padding: 0; accent-color: var(--accent); }
 .sandbox-tools { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sandbox-tools select { width: auto; padding: 4px 8px; font-size: 12px; border-color: #8a6d1a; }
 .sandbox-lobby { flex-wrap: wrap; margin: 10px 0 4px; }
+
+/* ---------- offline edition (single HTML file, you vs bots) ---------- */
+body.offline .online-only { display: none !important; }

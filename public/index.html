@@ -57,6 +57,7 @@
     </div>
     <div class="lobby-grid">
       <div class="panel">
+        <div class="online-only">
         <h2>Join a room</h2>
         <p class="muted">Got a code from a friend? Enter it here.</p>
         <form id="join-form" class="row">
@@ -65,7 +66,8 @@
         </form>
         <p id="join-error" class="error"></p>
         <hr>
-        <h2>Create a room</h2>
+        </div>
+        <h2 id="create-title">Create a room</h2>
         <form id="create-form">
           <div class="row">
             <label class="grow">Blinds
@@ -78,11 +80,11 @@
                 <option value="500">250 / 500</option>
               </select>
             </label>
-            <label class="grow">Custom code <span class="muted">(optional)</span>
+            <label class="grow online-only">Custom code <span class="muted">(optional)</span>
               <input id="create-code" placeholder="e.g. FRIDAY" maxlength="8" autocomplete="off" class="code-input">
             </label>
           </div>
-          <button class="btn primary wide" type="submit">Create room</button>
+          <button class="btn primary wide" type="submit" id="create-btn">Create room</button>
         </form>
         <p id="create-error" class="error"></p>
       </div>
@@ -145,7 +147,7 @@
     <header class="topbar">
       <button class="btn ghost" id="leave-btn">← Leave</button>
       <span class="room-info">Room <b id="room-code" class="code"></b>
-        <button class="btn tiny" id="copy-link-btn">Copy invite link</button>
+        <button class="btn tiny online-only" id="copy-link-btn">Copy invite link</button>
       </span>
       <span class="muted" id="blinds-info"></span>
       <span class="spacer"></span>
@@ -225,6 +227,7 @@
       <button class="btn primary" id="avatar-save">Save avatar</button>
     </div>
     <p id="avatar-error" class="error"></p>
+    <div class="online-only">
     <hr>
     <h4>Change password</h4>
     <form id="password-form" class="stack">
@@ -241,6 +244,7 @@
       <button class="btn" type="submit">Get a new recovery code</button>
       <p id="recovery-error" class="error"></p>
     </form>
+    </div>
   </dialog>
 
   <!-- Recovery code dialog -->

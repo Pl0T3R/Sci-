@@ -515,7 +515,8 @@ class Table {
 
   // ---------- view ----------
   stateFor(viewer) {
-    const mySeat = this.seatOf(viewer);
+    let mySeat = this.seatOf(viewer);
+    if (mySeat !== -1 && this.seats[mySeat].left) mySeat = -1; // stood up mid-hand: no longer seated
     const seats = this.seats.map((s, i) => {
       if (!s || s.left) return null;
       const reveal = s.username === viewer || (s.showCards && !s.folded);
