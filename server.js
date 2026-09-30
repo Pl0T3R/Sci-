@@ -25,7 +25,8 @@ const EMOTE_COOLDOWN_MS = 1200;
 const app = express();
 // Behind a hosting proxy (Render, Railway, Fly…) the real client IP is in X-Forwarded-For;
 // without this every player would share one login rate-limit bucket.
-if (process.env.TRUST_PROXY || process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.FLY_APP_NAME) {
+const TUNNEL = process.argv.includes('--tunnel');
+if (TUNNEL || process.env.TRUST_PROXY || process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.FLY_APP_NAME) {
   app.set('trust proxy', 1);
 }
 app.get('/healthz', (req, res) => res.send('ok'));
@@ -444,6 +445,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  if (tunnelProcess) tunnelProcess.kill();
   // put every stack back into its owner's wallet
   for (const room of rooms.values()) {
     for (const s of room.table.seats) {
@@ -465,6 +467,51 @@ async function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// --tunnel: expose this server to the internet with a free Cloudflare quick tunnel
+// (https://….trycloudflare.com), so friends can join from any network.
+let tunnelProcess = null;
+function cloudflaredCandidates() {
+  const list = [process.env.CLOUDFLARED || 'cloudflared'];
+  if (process.platform === 'win32') {
+    for (const dir of [process.env['ProgramFiles(x86)'], process.env.ProgramFiles, process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links')]) {
+      if (dir) list.push(path.join(dir, 'cloudflared', 'cloudflared.exe'), path.join(dir, 'cloudflared.exe'));
+    }
+  }
+  return list;
+}
+
+function startTunnel(localUrl, candidates = cloudflaredCandidates()) {
+  const { spawn } = require('child_process');
+  const [cmd, ...rest] = candidates;
+  if (!cmd) {
+    console.log('\n  ⚠️  cloudflared is not installed, so the game is only reachable on this network.');
+    console.log('     Install it (Windows): winget install --id Cloudflare.cloudflared   then start again.\n');
+    return;
+  }
+  const child = spawn(cmd, ['tunnel', '--no-autoupdate', '--url', localUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let announced = false;
+  const watch = (chunk) => {
+    const m = !announced && String(chunk).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (!m) return;
+    announced = true;
+    const line = '═'.repeat(m[0].length + 4);
+    console.log(`\n  ╔${line}╗\n  ║  ${m[0]}  ║\n  ╚${line}╝`);
+    console.log('  🌍 Send this link to your friends: it works from any network.');
+    console.log('     Keep this window open while you play. The link changes every time you start.\n');
+    if (process.argv.includes('--open')) openBrowser(m[0]);
+  };
+  child.stdout.on('data', watch);
+  child.stderr.on('data', watch);
+  child.on('error', (e) => {
+    if (e.code === 'ENOENT') startTunnel(localUrl, rest);
+    else console.error('Tunnel error:', e.message);
+  });
+  child.on('exit', (code) => {
+    if (tunnelProcess === child && !shuttingDown && code !== null) console.log('\n  ⚠️  The tunnel stopped (code ' + code + '). Restart to get a new link.');
+  });
+  tunnelProcess = child;
+}
 
 function openBrowser(url) {
   const { spawn } = require('child_process');
@@ -490,7 +537,8 @@ db.load().then(
         console.log(`     Test accounts: ${sandbox.TEST_ACCOUNTS.join(', ')} (password: ${sandbox.TEST_PASSWORD})`);
         console.log('     Each browser tab can log in as a different account. Ctrl+C to stop.\n');
       }
-      if (process.argv.includes('--open')) openBrowser(url);
+      if (TUNNEL) startTunnel(url);
+      else if (process.argv.includes('--open')) openBrowser(url);
     });
   },
   (e) => {

@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "online": "node server.js --tunnel --open",
     "sandbox": "node server.js --sandbox --open",
     "sandbox:reset": "node -e \"require('fs').rmSync('sandbox-data',{recursive:true,force:true});console.log('Sandbox data deleted')\"",
     "build:offline": "node scripts/build-offline.js",

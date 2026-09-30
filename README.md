@@ -72,6 +72,14 @@ npm start          # http://localhost:3000
 
 On Windows you can also just double-click `start-server.bat`. When the server starts, it prints the address that friends on the **same Wi-Fi** can open (e.g. `http://192.168.1.23:3000`). For a quick test with friends elsewhere, `npx localtunnel --port 3000` gives you a temporary public link while your computer is on.
 
+## Host it from your own computer for friends anywhere (Windows)
+
+1. Install Node.js from https://nodejs.org/dist/v24.21.0/node-v24.21.0-x64.msi.
+2. Double-click `start-online.bat`. The first time, it installs Cloudflare Tunnel (`cloudflared`) with winget.
+3. A box with a link like `https://something-random.trycloudflare.com` appears. Send it to your friends: it works from any network, including mobile data.
+
+The game runs only while your computer is on and that window is open. The link changes every time you start it, and accounts and chips are saved on your computer. You can do the same from a terminal with `npm run online` (it needs `cloudflared` installed). For a server that's always online, use Render + Neon (above).
+
 ## Local sandbox (test mode)
 
 A private copy of the game on your own computer, for trying things out alone. You need [Node.js](https://nodejs.org) (the LTS version).
@@ -130,6 +138,7 @@ public/fonts/      Black Ops One stencil font (SIL Open Font License)
 src/sandbox.js     Sandbox mode: test accounts and bots
 offline/           Single-file offline edition (built by scripts/build-offline.js)
 start-server.bat   Double-click launcher for the real server (Windows)
+start-online.bat   Same, plus a public link for friends on any network (Windows)
 start-sandbox.*    Double-click launchers for the local sandbox
 render.yaml        One-click Render deployment (Blueprint)
 ```
