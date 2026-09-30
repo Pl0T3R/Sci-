@@ -481,6 +481,10 @@ db.load().then(
     server.listen(PORT, () => {
       const url = `http://localhost:${PORT}`;
       console.log(`Poker server running on ${url} (storage: ${process.env.DATABASE_URL ? 'Postgres' : 'file'})`);
+      // addresses friends on the same Wi-Fi can open
+      const lan = Object.values(require('os').networkInterfaces()).flat()
+        .filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => `http://${a.address}:${PORT}`);
+      if (lan.length) console.log(`  Friends on the same Wi-Fi: ${lan.join('  or  ')}`);
       if (SANDBOX) {
         console.log(`\n  🧪 SANDBOX MODE: test data lives in ${process.env.DATA_DIR}`);
         console.log(`     Test accounts: ${sandbox.TEST_ACCOUNTS.join(', ')} (password: ${sandbox.TEST_PASSWORD})`);

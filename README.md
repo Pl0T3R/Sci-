@@ -70,7 +70,7 @@ npm install
 npm start          # http://localhost:3000
 ```
 
-Friends on the **same Wi-Fi** can open `http://<your-computer's-IP>:3000`. For a quick test with friends elsewhere, `npx localtunnel --port 3000` gives you a temporary public link while your computer is on.
+On Windows you can also just double-click `start-server.bat`. When the server starts, it prints the address that friends on the **same Wi-Fi** can open (e.g. `http://192.168.1.23:3000`). For a quick test with friends elsewhere, `npx localtunnel --port 3000` gives you a temporary public link while your computer is on.
 
 ## Local sandbox (test mode)
 
@@ -129,6 +129,7 @@ public/            Browser client (index.html, app.js, effects.js, style.css)
 public/fonts/      Black Ops One stencil font (SIL Open Font License)
 src/sandbox.js     Sandbox mode: test accounts and bots
 offline/           Single-file offline edition (built by scripts/build-offline.js)
+start-server.bat   Double-click launcher for the real server (Windows)
 start-sandbox.*    Double-click launchers for the local sandbox
 render.yaml        One-click Render deployment (Blueprint)
 ```
