@@ -490,16 +490,21 @@ function startTunnel(localUrl, candidates = cloudflaredCandidates()) {
     return;
   }
   const child = spawn(cmd, ['tunnel', '--no-autoupdate', '--url', localUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let tunnelUrl = null;
+  let registered = false;
   let announced = false;
   const watch = (chunk) => {
-    const m = !announced && String(chunk).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-    if (!m) return;
-    announced = true;
-    const line = '═'.repeat(m[0].length + 4);
-    console.log(`\n  ╔${line}╗\n  ║  ${m[0]}  ║\n  ╚${line}╝`);
-    console.log('  🌍 Send this link to your friends: it works from any network.');
-    console.log('     Keep this window open while you play. The link changes every time you start.\n');
-    if (process.argv.includes('--open')) openBrowser(m[0]);
+    const text = String(chunk);
+    const m = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (m && !tunnelUrl) {
+      tunnelUrl = m[0];
+      console.log('  ⏳ Starting the public link, this takes a few seconds…');
+    }
+    if (/Registered tunnel connection/i.test(text)) registered = true;
+    if (tunnelUrl && registered && !announced) {
+      announced = true;
+      waitForDns(tunnelUrl).then((ready) => announceTunnel(tunnelUrl, ready));
+    }
   };
   child.stdout.on('data', watch);
   child.stderr.on('data', watch);
@@ -511,6 +516,36 @@ function startTunnel(localUrl, candidates = cloudflaredCandidates()) {
     if (tunnelProcess === child && !shuttingDown && code !== null) console.log('\n  ⚠️  The tunnel stopped (code ' + code + '). Restart to get a new link.');
   });
   tunnelProcess = child;
+}
+
+// A brand-new trycloudflare.com name takes a few seconds to appear in DNS. If the browser
+// (or Windows) looks it up too early it caches "doesn't exist" for minutes, so ask public
+// resolvers directly (this doesn't touch the computer's own DNS cache) until it resolves.
+async function waitForDns(url, timeoutMs = Number(process.env.TUNNEL_DNS_WAIT_MS) || 60000) {
+  const { Resolver } = require('dns').promises;
+  const resolver = new Resolver();
+  resolver.setServers(['1.1.1.1', '8.8.8.8']);
+  const host = new URL(url).hostname;
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    try {
+      if ((await resolver.resolve4(host)).length) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return false;
+}
+
+function announceTunnel(url, ready) {
+  const line = '═'.repeat(url.length + 4);
+  console.log(`\n  ╔${line}╗\n  ║  ${url}  ║\n  ╚${line}╝`);
+  console.log('  🌍 Send this link to your friends: it works from any network.');
+  console.log('     Keep this window open while you play. The link changes every time you start.');
+  if (!ready) {
+    console.log('     If the page says "This site can\'t be reached", wait a minute, run  ipconfig /flushdns  and reload.');
+  }
+  console.log('');
+  if (process.argv.includes('--open')) openBrowser(url);
 }
 
 function openBrowser(url) {
